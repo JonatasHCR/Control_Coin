@@ -1,0 +1,219 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens — warm, calm, dense.
+ *
+ * Direction (owner, superseding the white/black/sky palette): a warm paper
+ * ground, rounded white cards, sage green as the single accent, and the
+ * density of a ledger. The chrome is deliberately quiet so the figures carry
+ * the screen.
+ *
+ * The CHART pair below is not part of that: it stays the validated
+ * colourblind-safe blue/orange, because the category bars encode essential
+ * against non-essential (BR17/BR18) and two series must stay distinguishable.
+ */
+@theme {
+  --color-plane: #f7f5f1; /* page — warm paper */
+  --color-surface: #ffffff; /* cards */
+  --color-well: #f4f3f1; /* wells, notes, filter chips */
+  --color-inset: #efece6; /* segmented tracks, key hints */
+
+  --color-ink: #2b2925;
+  --color-ink-2: #6a675f;
+  --color-muted: #9c9a93;
+  --color-faint: #b5b2ab; /* projected, absent, "sem meta" */
+
+  --color-line: #ece9e3;
+  --color-rule: #ddd9d1;
+
+  /* accent — sage */
+  --color-accent: #4f7f6d;
+  --color-accent-soft: #edf4ef;
+  --color-accent-well: #f3f6f1;
+  --color-on-accent: #ffffff;
+  /* The auth split panel — deep enough to carry white text in either theme. */
+  --color-brand-panel: #3d6857;
+
+  /* chart series — validated, not chosen. Do not swap these. */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+
+  --color-good: #3f7a5c;
+  --color-warn: #c9a06a;
+  --color-bad: #b4563c;
+  --color-positive: #3f7a5c;
+
+  --radius-card: 18px;
+  --radius-s: 12px;
+
+  --shadow-card: 0 1px 2px rgb(43 41 37 / 0.05);
+  --shadow-pop: 0 18px 44px rgb(43 41 37 / 0.14);
+
+  --font-display: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  /*
+   * Dark is warm too — the same paper turned down, not a blue-black. Cards
+   * keep their hairline instead of a shadow, which reads as glow on dark.
+   *
+   * The declarations are shared by two triggers, which is why they appear
+   * twice: the explicit `.dark` toggle (any OS) and the system preference when
+   * no explicit choice is made.
+   */
+  .dark {
+    color-scheme: dark;
+    --color-plane: #171614;
+    --color-surface: #211f1c;
+    --color-well: #1c1b19;
+    --color-inset: #2a2825;
+    --color-ink: #eceae5;
+    --color-ink-2: #a8a49b;
+    --color-muted: #807c74;
+    --color-faint: #5c5952;
+    --color-line: #302d29;
+    --color-rule: #3a3733;
+    --color-accent: #6aa287;
+    --color-accent-soft: #22302a;
+    --color-accent-well: #1f2a24;
+    --color-on-accent: #16211b;
+    --color-brand-panel: #2f5648;
+    --color-series-1: #3987e5;
+    --color-series-2: #d95926;
+    --color-good: #7cb794;
+    --color-warn: #d3a26a;
+    --color-bad: #d97a5c;
+    --color-positive: #7cb794;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+    --shadow-pop: 0 18px 44px rgb(0 0 0 / 0.55);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light):not(.dark) {
+      color-scheme: dark;
+      --color-plane: #171614;
+      --color-surface: #211f1c;
+      --color-well: #1c1b19;
+      --color-inset: #2a2825;
+      --color-ink: #eceae5;
+      --color-ink-2: #a8a49b;
+      --color-muted: #807c74;
+      --color-faint: #5c5952;
+      --color-line: #302d29;
+      --color-rule: #3a3733;
+      --color-accent: #6aa287;
+      --color-accent-soft: #22302a;
+      --color-accent-well: #1f2a24;
+      --color-on-accent: #16211b;
+      --color-brand-panel: #2f5648;
+      --color-series-1: #3987e5;
+      --color-series-2: #d95926;
+      --color-good: #7cb794;
+      --color-warn: #d3a26a;
+      --color-bad: #d97a5c;
+      --color-positive: #7cb794;
+      --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+      --shadow-pop: 0 18px 44px rgb(0 0 0 / 0.55);
+    }
+  }
+
+  * {
+    border-color: var(--color-line);
+  }
+
+  body {
+    background: var(--color-plane);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.015em;
+  }
+
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+}
+
+@layer components {
+  .tile {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* Money and other figures: display face, aligned columns. */
+  .figure {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.015em;
+  }
+
+  /* Dates and invoice references stay monospaced — they are codes, not sums. */
+  .code {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    background: var(--color-inset);
+    color: var(--color-muted);
+    border-radius: 5px;
+    padding: 1.5px 5px;
+  }
+
+  .btn-accent {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    border-radius: 999px;
+    font-weight: 600;
+  }
+
+  .btn-accent:hover {
+    filter: brightness(1.06);
+  }
+
+  /* The rule-of-the-screen note at the foot of a card. */
+  .note {
+    background: var(--color-well);
+    border-radius: 10px;
+    padding: 8px 11px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--color-muted);
+  }
+}
