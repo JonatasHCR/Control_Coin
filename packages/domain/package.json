@@ -1,0 +1,31 @@
+{
+  "name": "@cc/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".":          { "types": "./dist/index.d.ts",         "default": "./dist/index.js" },
+    "./money":    { "types": "./dist/money/money.d.ts",   "default": "./dist/money/money.js" },
+    "./period":   { "types": "./dist/period/period.d.ts", "default": "./dist/period/period.js" },
+    "./schemas":  { "types": "./dist/schemas/index.d.ts", "default": "./dist/schemas/index.js" },
+    "./rules":    { "types": "./dist/rules/rules.d.ts",   "default": "./dist/rules/rules.js" },
+    "./calendar": { "types": "./dist/calendar/business-days.d.ts", "default": "./dist/calendar/business-days.js" }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:unit": "vitest run",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@cc/config": "*",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

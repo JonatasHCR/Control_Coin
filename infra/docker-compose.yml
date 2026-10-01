@@ -1,0 +1,56 @@
+# `docker compose -f infra/docker-compose.yml up` must be the only setup
+# instruction in the README. Anything else in that README is a defect (ARCH03).
+
+name: control-coin
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: control_coin
+      POSTGRES_PASSWORD: control_coin
+      POSTGRES_DB: control_coin
+    ports: ['5432:5432']
+    volumes: ['db-data:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U control_coin']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Migrations run as their own step, before the app rolls out (ARCH03).
+  migrate:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgresql://control_coin:control_coin@db:5432/control_coin?schema=public
+    depends_on:
+      db: { condition: service_healthy }
+    restart: 'no'
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://control_coin:control_coin@db:5432/control_coin?schema=public
+      PORT: 3001
+    ports: ['3001:3001']
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    environment:
+      API_URL: http://api:3001
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports: ['3000:3000']
+    depends_on: [api]
+
+volumes:
+  db-data:
