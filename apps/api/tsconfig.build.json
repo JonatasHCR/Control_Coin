@@ -1,0 +1,38 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "noEmit": false
+  },
+  "exclude": [
+    "**/*.spec.ts",
+    "test/**/*"
+  ],
+  "include": [
+    "src/**/*",
+    "prisma/seed.ts",
+    "prisma/demo.ts",
+    "prisma/import-extratos.ts",
+    "prisma/fix-karen.ts",
+    "prisma/import-fatura.ts",
+    "prisma/voltar.ts",
+    "prisma/simplificar.ts",
+    "prisma/elis.ts",
+    "prisma/classificar.ts",
+    "prisma/pares3.ts",
+    "prisma/pares2.ts",
+    "prisma/replan.ts",
+    "prisma/studioz.ts",
+    "prisma/pares.ts",
+    "prisma/jan.ts",
+    "prisma/consolidar.ts",
+    "prisma/align.ts",
+    "prisma/fix4.ts",
+    "prisma/fix3.ts",
+    "prisma/fix2.ts"
+  ]
+}

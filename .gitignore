@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.next/
+.turbo/
+coverage/
+*.tsbuildinfo
+docs/
+
+# Anchored: unanchored `reports/` would also swallow apps/api/src/modules/reports.
+/reports/
+
+*.log
+.env
+.env.*
+!.env.example
+
+# Obsidian writes the open panes here; the rest of the vault config is shared.
+.obsidian/
+
+
+# The published canvas, rebuilt from the .dc.html artboards + canvas.json.
+design/control-coin-direcoes.html
+
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

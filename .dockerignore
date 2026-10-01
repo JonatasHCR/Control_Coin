@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+/reports          # JUnit output at the repo root — NOT src/modules/reports
+docs
+prototype
+design
+.git
+**/.env
+**/*.log

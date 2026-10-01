@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# Migrations are a separate deployment step with their own failure handling, so
+# the app image never carries the ability to migrate the database it connects
+# to (ARCH03).
+
+FROM node:22-slim
+# Prisma's schema engine needs libssl; slim ships without it.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+WORKDIR /repo
+
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+RUN npm ci --ignore-scripts --omit=dev --workspace @cc/api --include-workspace-root
+
+COPY apps/api/prisma ./apps/api/prisma
+
+# Expand–contract only: this never rolls a schema back (ARCH03).
+CMD ["npx", "prisma", "migrate", "deploy", "--schema", "apps/api/prisma/schema.prisma"]

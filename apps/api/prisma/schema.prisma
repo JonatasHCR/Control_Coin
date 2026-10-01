@@ -1,0 +1,413 @@
+// Tables only. Enums, triggers, views and functions live in prisma/sql/ and are
+// applied by migrations, because Prisma cannot express them (see DM03, ARCH05).
+//
+// BR36: no derived money value is stored anywhere below. The only amounts held
+// are the ones the user typed.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  username     String   @unique                          // BR28: no email column
+  passwordHash String   @map("password_hash")
+  mainCurrency String   @default("BRL") @map("main_currency") @db.Char(3)
+  language     String   @default("pt-BR")                 // BR29
+  theme        String   @default("system")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  wallets       Wallet[]
+  accounts      Account[]
+  categories    Category[]
+  transactions  Transaction[]
+  budgets       Budget[]
+  goals         Goal[]
+  series        Series[]
+  notifications Notification[]
+  alertRules    AlertRule[]
+  recoveryCodes RecoveryCode[]
+  sessions      Session[]
+  importBatches ImportBatch[]
+
+  @@map("app_user")
+}
+
+model Wallet {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  name        String
+  description String?
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts Account[]
+  goals    Goal[]
+
+  @@unique([userId, name])
+  @@map("wallet")
+}
+
+model Account {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  walletId       String?  @map("wallet_id") @db.Uuid    // BR16: null = no wallet
+  name           String
+  type           String                                  // BANK | CASH
+  currency       String   @db.Char(3)
+  initialBalance Decimal  @default(0) @map("initial_balance") @db.Decimal(14, 2)
+  archived       Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet  Wallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  cards   Card[]
+  entries Entry[]
+  goals   Goal[]
+
+  // BR37 — name is unique per WALLET, enforced by two partial unique indexes
+  // that Prisma cannot express (see prisma/migrations, prisma/sql).
+  @@index([walletId])
+  @@map("account")
+}
+
+// BR06: accountId is required, so a card without an account is unrepresentable.
+// BR09: at least one function — enforced by a CHECK in prisma/sql/.
+model Card {
+  id           String   @id @default(uuid()) @db.Uuid
+  accountId    String   @map("account_id") @db.Uuid
+  name         String
+  allowsCredit Boolean  @default(false) @map("allows_credit")
+  allowsDebit  Boolean  @default(false) @map("allows_debit")
+  creditLimit  Decimal? @map("credit_limit") @db.Decimal(14, 2)
+  closingDay   Int?     @map("closing_day") @db.SmallInt
+  dueDay       Int?     @map("due_day") @db.SmallInt
+  archived     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  invoices Invoice[]
+  entries  Entry[]
+
+  @@index([accountId])
+  @@map("card")
+}
+
+// BR13: no `kind` column — that absence is the rule.
+// BR17/BR20: the flag and the target are per row and never inherited.
+model Category {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  parentId      String?  @map("parent_id") @db.Uuid
+  name          String
+  icon          String?
+  isEssential   Boolean  @default(false) @map("is_essential")
+  monthlyTarget Decimal? @map("monthly_target") @db.Decimal(14, 2)
+  archived      Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Category[]    @relation("CategoryTree")
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@map("category")
+}
+
+model Series {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  frequency     String
+  intervalCount Int       @default(1) @map("interval_count") @db.SmallInt
+  startsOn      DateTime  @map("starts_on") @db.Date
+  endsOn        DateTime? @map("ends_on") @db.Date
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("series")
+}
+
+model ImportBatch {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  sourceFormat String   @map("source_format")     // CSV | OFX | XLSX
+  fileName     String?  @map("file_name")
+  sheetName    String?  @map("sheet_name")        // BR26
+  numberLocale String?  @map("number_locale")
+  dateSystem   String?  @map("date_system")
+  importedAt   DateTime @default(now()) @map("imported_at") @db.Timestamptz(6)
+  rowCount     Int      @default(0) @map("row_count")
+  errorCount   Int      @default(0) @map("error_count")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("import_batch")
+}
+
+model Transaction {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  categoryId     String?  @map("category_id") @db.Uuid   // BR01: optional
+  seriesId       String?  @map("series_id") @db.Uuid
+  importBatchId  String?  @map("import_batch_id") @db.Uuid
+  kind           String                                   // INCOME | EXPENSE | TRANSFER
+  occurrenceType String   @default("OCCASIONAL") @map("occurrence_type")
+  description    String?
+  occurredOn     DateTime @map("occurred_on") @db.Date
+  totalAmount    Decimal  @map("total_amount") @db.Decimal(14, 2)
+  currency       String   @db.Char(3)
+  externalRef    String?  @map("external_ref")            // BR24
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  series      Series?      @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  entries     Entry[]
+
+  @@index([userId, occurredOn])
+  @@map("transaction")
+}
+
+// BR11: exactly one of accountId / cardId — a CHECK in prisma/sql/ enforces it.
+model Entry {
+  id                String  @id @default(uuid()) @db.Uuid
+  transactionId     String  @map("transaction_id") @db.Uuid
+  accountId         String? @map("account_id") @db.Uuid
+  cardId            String? @map("card_id") @db.Uuid
+  side              String                                  // SOURCE | DESTINATION
+  cardFunction      String? @map("card_function")           // CREDIT | DEBIT
+  amount            Decimal @db.Decimal(14, 2)
+  installmentCount  Int     @default(1) @map("installment_count") @db.SmallInt
+
+  transaction Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account     Account?     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  card        Card?        @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  settlements Settlement[]
+
+  @@index([transactionId])
+  @@map("entry")
+}
+
+// BR36: no charged/paid/open columns — all derived in v_invoice_total.
+model Invoice {
+  id             String   @id @default(uuid()) @db.Uuid
+  cardId         String   @map("card_id") @db.Uuid
+  referenceMonth DateTime @map("reference_month") @db.Date
+  closesOn       DateTime @map("closes_on") @db.Date
+  dueOn          DateTime @map("due_on") @db.Date
+  status         String   @default("OPEN")                  // BR32, maintained by the daily job
+
+  card        Card         @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  settlements Settlement[]
+
+  @@unique([cardId, referenceMonth])
+  @@map("invoice")
+}
+
+// BR07/BR10: one row per real movement of money.
+model Settlement {
+  id         String    @id @default(uuid()) @db.Uuid
+  entryId    String    @map("entry_id") @db.Uuid
+  invoiceId  String?   @map("invoice_id") @db.Uuid
+  sequenceNo Int       @map("sequence_no") @db.SmallInt
+  amount     Decimal   @db.Decimal(14, 2)
+  dueOn      DateTime  @map("due_on") @db.Date
+  settledOn  DateTime? @map("settled_on") @db.Date
+
+  entry   Entry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, sequenceNo])
+  @@index([dueOn])
+  @@map("settlement")
+}
+
+// BR23: a null limit inherits the category's target.
+model Budget {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  categoryId  String   @map("category_id") @db.Uuid
+  periodType  String   @default("MONTHLY") @map("period_type")
+  periodStart DateTime @map("period_start") @db.Date
+  limitAmount Decimal? @map("limit_amount") @db.Decimal(14, 2)
+  currency    String   @db.Char(3)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, periodType, periodStart])
+  @@map("budget")
+}
+
+// BR15: exactly one progress source, never a card.
+model Goal {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  walletId             String?  @map("wallet_id") @db.Uuid
+  accountId            String?  @map("account_id") @db.Uuid
+  name                 String
+  targetAmount         Decimal  @map("target_amount") @db.Decimal(14, 2)
+  deadline             DateTime @db.Date
+  sourceType           String   @map("source_type")          // WALLET | ACCOUNT | MANUAL
+  countsInitialBalance Boolean  @default(true) @map("counts_initial_balance")
+  status               String   @default("ACTIVE")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet        Wallet?            @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  account       Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contributions GoalContribution[]
+
+  @@map("goal")
+}
+
+model GoalContribution {
+  id            String   @id @default(uuid()) @db.Uuid
+  goalId        String   @map("goal_id") @db.Uuid
+  amount        Decimal  @db.Decimal(14, 2)
+  contributedOn DateTime @map("contributed_on") @db.Date
+  note          String?
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@map("goal_contribution")
+}
+
+// BR28: no channel column — the notification centre is the only destination.
+model AlertRule {
+  id               String  @id @default(uuid()) @db.Uuid
+  userId           String  @map("user_id") @db.Uuid
+  type             String
+  targetType       String? @map("target_type")
+  targetId         String? @map("target_id") @db.Uuid
+  thresholdPercent Int?    @map("threshold_percent") @db.SmallInt
+  daysBefore       Int?    @map("days_before") @db.SmallInt
+  active           Boolean @default(true)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+
+  @@map("alert_rule")
+}
+
+model Notification {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  alertRuleId String?   @map("alert_rule_id") @db.Uuid
+  type        String
+  subjectType String?   @map("subject_type")
+  subjectId   String?   @map("subject_id") @db.Uuid
+  message     String
+  raisedAt    DateTime  @default(now()) @map("raised_at") @db.Timestamptz(6)
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+  dismissedAt DateTime? @map("dismissed_at") @db.Timestamptz(6)
+  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(6)
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertRule AlertRule? @relation(fields: [alertRuleId], references: [id], onDelete: Cascade)
+
+  @@map("notification")
+}
+
+model RecoveryCode {
+  id       String    @id @default(uuid()) @db.Uuid
+  userId   String    @map("user_id") @db.Uuid
+  codeHash String    @map("code_hash")
+  usedAt   DateTime? @map("used_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("recovery_code")
+}
+
+model Session {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  issuedAt   DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  userAgent  String?   @map("user_agent")
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+// UC01: attempts are counted per username, so tries against an account that
+// does not exist are limited too — and cannot be used to enumerate users.
+model LoginAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  username    String
+  attemptedAt DateTime @default(now()) @map("attempted_at") @db.Timestamptz(6)
+  succeeded   Boolean
+  ip          String?
+
+  @@index([username, attemptedAt])
+  @@map("login_attempt")
+}
+
+model JobRun {
+  id             String    @id @default(uuid()) @db.Uuid
+  jobName        String    @map("job_name")
+  startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz(6)
+  status         String
+  itemsProcessed Int       @default(0) @map("items_processed")
+  error          String?
+
+  @@map("job_run")
+}
+
+// BR17/BR20 are retroactive: flipping a flag or changing a target rewrites what
+// past months reported. This is what makes 'why did January change?' answerable.
+model AuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  action     String
+  changedAt  DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+  before     Json?
+  after      Json?
+
+  @@index([entityType, entityId, changedAt])
+  @@map("audit_event")
+}
+
+model BackupRun {
+  id              String    @id @default(uuid()) @db.Uuid
+  scope           String
+  startedAt       DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
+  status          String
+  sizeBytes       BigInt?   @map("size_bytes")
+  location        String
+  checksum        String?
+  restoreTestedAt DateTime? @map("restore_tested_at") @db.Timestamptz(6)
+
+  @@map("backup_run")
+}
+
+model ExchangeRate {
+  baseCurrency  String   @map("base_currency") @db.Char(3)
+  quoteCurrency String   @map("quote_currency") @db.Char(3)
+  rateDate      DateTime @map("rate_date") @db.Date
+  rate          Decimal  @db.Decimal(18, 8)
+
+  @@id([baseCurrency, quoteCurrency, rateDate])
+  @@map("exchange_rate")
+}
