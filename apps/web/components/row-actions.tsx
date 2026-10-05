@@ -35,8 +35,8 @@ export function DeleteButton({
     if (res.ok) {
       router.refresh();
     } else {
-      const body = (await res.json().catch(() => ({}))) as { detail?: string };
-      setError(typeof body.detail === 'string' ? body.detail : 'não foi possível excluir');
+      const body = (await res.json().catch(() => ({}))) as { detail?: { message?: string } };
+      setError(body.detail?.message ?? 'não foi possível excluir');
       setBusy(false);
     }
   }
@@ -58,16 +58,29 @@ export function DeleteButton({
   );
 }
 
-/** Archive icon-button — for accounts and cards that have history. */
-export function ArchiveButton({ id, kind }: { id: string; kind: 'WALLET' | 'ACCOUNT' | 'CARD' }) {
+/** Archive icon-button — for wallets, accounts and cards that have history. */
+export function ArchiveButton({ id, kind, undo = false }: { id: string; kind: 'WALLET' | 'ACCOUNT' | 'CARD'; undo?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
   async function run(): Promise<void> {
     setBusy(true);
-    await fetch(`/api/accounts/${id}/archive?kind=${kind}`, { method: 'POST' });
+    await fetch(`/api/accounts/${id}/archive?kind=${kind}${undo ? '&undo=true' : ''}`, { method: 'POST' });
     router.refresh();
     setBusy(false);
+  }
+
+  if (undo) {
+    return (
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="rounded-md border border-[var(--color-rule)] px-2.5 py-1 text-[12px] font-semibold text-[var(--color-accent)] transition hover:bg-[var(--color-well)] disabled:opacity-40"
+      >
+        {busy ? '…' : 'Desarquivar'}
+      </button>
+    );
   }
 
   return (

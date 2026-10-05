@@ -49,6 +49,11 @@ export class AccountsController {
     return this.accounts.tree(userId);
   }
 
+  @Get('archived')
+  archived(@CurrentUser() userId: string) {
+    return this.accounts.archived(userId);
+  }
+
   @Post('wallets')
   createWallet(@CurrentUser() userId: string, @Body(new ZodPipe(walletInput)) body: z.infer<typeof walletInput>) {
     return this.accounts.createWallet(userId, body.name);

@@ -3,14 +3,18 @@ import { EditButton, EntityForm, NewButton } from '@/components/forms/entity-for
 import { DeleteButton, ArchiveButton } from '@/components/row-actions';
 import { Callout, Card, CardHead, Chip } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
-import { apiFetch, type AccountNode, type AccountTree } from '@/lib/api';
+import { apiFetch, type AccountNode, type AccountTree, type ArchivedTree } from '@/lib/api';
 import { t, type Locale } from '@/lib/i18n';
 import { getLocale } from '@/lib/prefs';
 
 /** UC10: wallet › account › card, with balances derived by the API. */
 export default async function AccountsPage() {
   const locale = await getLocale();
-  const tree = await apiFetch<AccountTree>('/accounts');
+  const [tree, archived] = await Promise.all([
+    apiFetch<AccountTree>('/accounts'),
+    apiFetch<ArchivedTree>('/accounts/archived'),
+  ]);
+  const archivedCount = archived.wallets.length + archived.accounts.length + archived.cards.length;
 
   // BR37: two accounts may share a name in different wallets, so every place
   // that offers one for choosing names the wallet too.
@@ -93,6 +97,7 @@ export default async function AccountsPage() {
                     path={`accounts/wallets/${wallet.id}`}
                     fields={[{ name: 'name', label: 'Nome', type: 'text', value: wallet.name }]}
                   />
+                  <ArchiveButton id={wallet.id} kind="WALLET" />
                   <DeleteButton path={`accounts/${wallet.id}?kind=WALLET`} confirmLabel="Excluir esta carteira? (só se estiver vazia)" />
                 </span>
               }
@@ -117,8 +122,59 @@ export default async function AccountsPage() {
         ) : null}
       </div>
 
+      {archivedCount > 0 ? (
+        <details className="mt-4 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface)] p-4">
+          <summary className="cursor-pointer text-[14px] font-semibold">
+            Arquivados <span className="font-normal text-[var(--color-muted)]">({archivedCount})</span>
+          </summary>
+          <p className="mt-1 text-[12px] text-[var(--color-muted)]">
+            Ficam fora das listas e escolhas, mas o histórico e os saldos continuam. Desarquive para voltar a usar.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 text-[13px]">
+            {archived.wallets.map((w) => (
+              <ArchivedRow key={w.id} kind="Carteira" name={w.name} note={w.hiddenAccounts > 0 ? `volta com ${w.hiddenAccounts} conta(s)` : null}>
+                <ArchiveButton id={w.id} kind="WALLET" undo />
+              </ArchivedRow>
+            ))}
+            {archived.accounts.map((a) => (
+              <ArchivedRow
+                key={a.id}
+                kind="Conta"
+                name={a.walletName ? `${a.walletName} › ${a.name}` : a.name}
+                note={a.hiddenCards > 0 ? `volta com ${a.hiddenCards} cartão(ões)` : null}
+              >
+                <ArchiveButton id={a.id} kind="ACCOUNT" undo />
+              </ArchivedRow>
+            ))}
+            {archived.cards.map((c) => (
+              <ArchivedRow
+                key={c.id}
+                kind="Cartão"
+                name={`${c.accountName} › ${c.name}`}
+                note={c.accountArchived ? 'a conta dele também está arquivada' : null}
+              >
+                <ArchiveButton id={c.id} kind="CARD" undo />
+              </ArchivedRow>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
       <Callout>{t(locale, 'acc.committedNote')}</Callout>
     </AppShell>
+  );
+}
+
+function ArchivedRow({ kind, name, note, children }: { kind: string; name: string; note: string | null; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-well)] px-3.5 py-2.5">
+      <span>
+        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">{kind}</span>
+        {name}
+        {note ? <span className="ml-2 text-[12px] text-[var(--color-muted)]">· {note}</span> : null}
+      </span>
+      {children}
+    </div>
   );
 }
 

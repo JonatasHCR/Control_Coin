@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { invoiceCycleDates } from '@cc/domain/schemas';
 import { ERROR_CODES } from '@cc/domain/rules';
 
-import { DomainError } from '../../common/errors/domain-error.js';
+import { DomainError, userError } from '../../common/errors/domain-error.js';
 import { PrismaService } from '../../database/prisma.service.js';
 
 /**
@@ -85,6 +85,42 @@ export class AccountsService {
       }),
       // BR16: an account in no wallet is still reachable as its own scope.
       unassigned: accounts.filter((a) => a.walletId === null).map(describe),
+    };
+  }
+
+  /**
+   * What archiving hid, so it can be brought back. An archived wallet hides
+   * its accounts and an archived account its cards, so each row says how many
+   * come back with it.
+   */
+  async archived(userId: string) {
+    const [wallets, accounts, cards] = await Promise.all([
+      this.prisma.wallet.findMany({
+        where: { userId, archived: true },
+        include: { _count: { select: { accounts: { where: { archived: false } } } } },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.account.findMany({
+        where: { userId, archived: true },
+        include: { wallet: true, _count: { select: { cards: { where: { archived: false } } } } },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.card.findMany({
+        where: { archived: true, account: { userId } },
+        include: { account: { include: { wallet: true } } },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+    return {
+      wallets: wallets.map((w) => ({ id: w.id, name: w.name, hiddenAccounts: w._count.accounts })),
+      accounts: accounts.map((a) => ({ id: a.id, name: a.name, walletName: a.wallet?.name ?? null, hiddenCards: a._count.cards })),
+      cards: cards.map((c) => ({
+        id: c.id,
+        name: c.name,
+        accountName: c.account.name,
+        // Unarchiving the card alone won't show it while its account stays archived.
+        accountArchived: c.account.archived || (c.account.wallet?.archived ?? false),
+      })),
     };
   }
 
@@ -239,10 +275,7 @@ export class AccountsService {
   }
 
   private hasHistory(what: string): DomainError {
-    return new DomainError(
-      ERROR_CODES.VALIDATION_FAILED,
-      `esta ${what} tem histórico — arquive em vez de excluir`,
-    );
+    return userError(ERROR_CODES.VALIDATION_FAILED, `esta ${what} tem histórico — arquive em vez de excluir`);
   }
 
   private async owned(kind: 'wallet' | 'account' | 'card', userId: string, id: string, viaAccount = false) {

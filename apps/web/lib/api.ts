@@ -135,6 +135,13 @@ export interface AccountTree {
   unassigned: AccountNode[];
 }
 
+/** GET /accounts/archived — what archiving hid. */
+export interface ArchivedTree {
+  wallets: { id: string; name: string; hiddenAccounts: number }[];
+  accounts: { id: string; name: string; walletName: string | null; hiddenCards: number }[];
+  cards: { id: string; name: string; accountName: string; accountArchived: boolean }[];
+}
+
 /** GET /categories (UC04). */
 export interface CategoryRow {
   id: string;
