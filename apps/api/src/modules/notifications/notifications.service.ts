@@ -35,7 +35,7 @@ export class NotificationsService {
       message: n.message,
       raisedAt: n.raisedAt.toISOString(),
       read: n.readAt !== null,
-      href: n.subjectType === 'PLANNED' ? `/planned#${n.subjectId}` : n.subjectType === 'INVOICE' ? '/invoices' : null,
+      href: n.subjectType === 'PLANNED' ? `/planned?confirm=${n.subjectId}` : n.subjectType === 'INVOICE' ? '/invoices' : null,
     }));
   }
 

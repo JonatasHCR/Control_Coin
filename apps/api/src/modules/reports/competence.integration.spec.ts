@@ -47,7 +47,7 @@ describe('BR14 — a card purchase counts on the purchase date, not the invoice 
   });
 });
 
-describe('BR14 — cost of living: essential spending, averaged over the year so far', () => {
+describe('BR14 — cost of living: essential limits, and the monthly average of all spending', () => {
   const spend = (date: string, amount: string, categoryId: string | null) =>
     transactions.create(f.userId, {
       kind: 'EXPENSE',
@@ -60,14 +60,31 @@ describe('BR14 — cost of living: essential spending, averaged over the year so
       entries: [{ side: 'SOURCE', accountId: f.itauId, amount }],
     } as never);
 
-  it('sums essential categories only, and divides January–month by the month number', async () => {
+  it('essential sums the essential limits, whatever was spent', async () => {
+    // Food (essential) has a 1400 target; add two more.
+    await prisma.category.create({ data: { userId: f.userId, name: 'Moradia', isEssential: true, monthlyTarget: '500.00' } });
+    await prisma.category.create({ data: { userId: f.userId, name: 'Lazer', isEssential: false, monthlyTarget: '900.00' } });
+    await prisma.category.create({ data: { userId: f.userId, name: 'Farmácia', isEssential: true } }); // no limit: adds nothing
+    expect((await reports.essentialCost(f.userId, '2026-03-01', null)).month_essential).toBe('1900.00');
+
+    await spend('2026-03-05', '5000.00', f.foodCategoryId); // overspending changes nothing
+    expect((await reports.essentialCost(f.userId, '2026-03-01', null)).month_essential).toBe('1900.00');
+  });
+
+  it("a month's budget limit replaces the target for that month only (BR23)", async () => {
+    await prisma.budget.create({ data: { userId: f.userId, categoryId: f.foodCategoryId, periodStart: new Date('2026-03-01'), limitAmount: '1000.00', currency: 'BRL' } });
+    expect((await reports.essentialCost(f.userId, '2026-03-01', null)).month_essential).toBe('1000.00');
+    expect((await reports.essentialCost(f.userId, '2026-04-01', null)).month_essential).toBe('1400.00');
+  });
+
+  it('monthly = all expenses January–month ÷ month number', async () => {
     const leisure = await prisma.category.create({ data: { userId: f.userId, name: 'Lazer', isEssential: false } });
     await spend('2026-01-10', '300.00', f.foodCategoryId);
     await spend('2026-03-05', '600.00', f.foodCategoryId);
-    await spend('2026-03-06', '999.00', leisure.id); // not essential
+    await spend('2026-03-06', '999.00', leisure.id);
     await spend('2025-12-20', '5000.00', f.foodCategoryId); // last year
-
     const march = await reports.essentialCost(f.userId, '2026-03-01', null);
-    expect(march).toEqual({ month_essential: '600.00', year_average: '300.00', months: 3 });
+    expect(march.year_average).toBe('633.00'); // (300 + 600 + 999) ÷ 3
+    expect(march.months).toBe(3);
   });
 });

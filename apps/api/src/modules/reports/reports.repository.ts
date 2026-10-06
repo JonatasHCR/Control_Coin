@@ -90,19 +90,25 @@ export class ReportsRepository {
   }
 
   /**
-   * BR14: the month's cost of living is what it spent in ESSENTIAL categories;
-   * beside it, the year's monthly average = January through that month ÷ the
-   * month's number (the month itself included, complete or not).
+   * BR14: the month's essential cost is the sum of the LIMITS of the essential
+   * categories — each one's budget limit for that month, else its monthly
+   * target (BR23) — whatever was actually spent. The monthly cost = ALL
+   * expenses from January through that month ÷ the month's number.
    */
   async essentialCost(userId: string, month: string, wallets: string[] | null) {
     const rows = await this.prisma.$queryRaw`
-      SELECT COALESCE(SUM(essential_total) FILTER (WHERE month = date_trunc('month', ${month}::date)::date), 0) AS month_essential,
-             COALESCE(SUM(essential_total), 0) / EXTRACT(MONTH FROM ${month}::date) AS year_average,
-             EXTRACT(MONTH FROM ${month}::date)::int AS months
-        FROM v_monthly_expense
-       WHERE user_id = ${userId}::uuid
-         AND month BETWEEN date_trunc('year', ${month}::date)::date AND date_trunc('month', ${month}::date)::date
-         AND (${wallets}::uuid[] IS NULL OR wallet_id = ANY (${wallets}::uuid[]))`;
+      SELECT (SELECT COALESCE(SUM(COALESCE(b.limit_amount, c.monthly_target)), 0)
+                FROM category c
+                LEFT JOIN budget b ON b.category_id = c.id AND b.period_type = 'MONTHLY'
+                                  AND b.period_start = date_trunc('month', ${month}::date)::date
+               WHERE c.user_id = ${userId}::uuid AND c.is_essential AND NOT c.archived) AS month_essential,
+             (SELECT COALESCE(SUM(expense_total), 0)
+                FROM v_monthly_expense
+               WHERE user_id = ${userId}::uuid
+                 AND month BETWEEN date_trunc('year', ${month}::date)::date AND date_trunc('month', ${month}::date)::date
+                 AND (${wallets}::uuid[] IS NULL OR wallet_id = ANY (${wallets}::uuid[]))
+             ) / EXTRACT(MONTH FROM ${month}::date) AS year_average,
+             EXTRACT(MONTH FROM ${month}::date)::int AS months`;
     return essentialCostRow.array().parse(rows)[0]!;
   }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { BellIcon } from '@/components/ui/icons';
@@ -22,6 +23,7 @@ interface Item {
  * preferences screen, where the alert rules live.
  */
 export function NotificationCentre({ locale }: { locale: Locale }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [feed, setFeed] = useState<{ unread: number; items: Item[] }>({ unread: 0, items: [] });
   const ref = useRef<HTMLDivElement>(null);
@@ -114,10 +116,17 @@ export function NotificationCentre({ locale }: { locale: Locale }) {
                       n.read ? 'bg-transparent' : 'bg-[var(--color-accent)]'
                     }`}
                   />
-                  {/* Click the body to mark just this one read. */}
+                  {/* The body marks it read and, when it points somewhere (a plan to
+                      confirm, an invoice), goes there — same as its button. */}
                   <button
                     type="button"
-                    onClick={() => (n.read ? undefined : markOneRead(n.id))}
+                    onClick={() => {
+                      if (!n.read) void markOneRead(n.id);
+                      if (n.href) {
+                        setOpen(false);
+                        router.push(n.href);
+                      }
+                    }}
                     className="flex-1 text-left"
                   >
                     <p className="text-[13px] leading-snug">{n.message}</p>

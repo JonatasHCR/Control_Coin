@@ -96,17 +96,26 @@ export default async function DashboardPage({
             value={<Money value={committed} locale={locale} />}
             note={t(locale, 'stat.committedNote')}
           />
-          {/* BR14: the month's essential spending, and the year's monthly average beside it. */}
+          {/* BR14: essential = the essential categories' limits; mensal = all spending, January–month ÷ month. */}
           <FlowStep
             label={t(locale, 'cost.title')}
-            tag={t(locale, 'cost.essentialTag')}
-            value={<Money value={essential.month_essential} locale={locale} />}
+            value={
+              <span className="flex flex-wrap gap-x-5 gap-y-1">
+                <span className="flex flex-col">
+                  <span className="text-[10.5px] font-bold uppercase tracking-[0.04em] text-[var(--color-muted)]">{t(locale, 'cost.essentialTag')}</span>
+                  <Money value={essential.month_essential} locale={locale} />
+                </span>
+                <span className="flex flex-col">
+                  <span className="text-[10.5px] font-bold uppercase tracking-[0.04em] text-[var(--color-muted)]">{t(locale, 'cost.monthlyTag')}</span>
+                  <Money value={essential.year_average} locale={locale} />
+                </span>
+              </span>
+            }
             note={
               <>
-                {t(locale, 'cost.yearAverage')} ({essential.months} {essential.months === 1 ? t(locale, 'cost.month') : t(locale, 'cost.months')}):{' '}
-                <strong className="text-[var(--color-ink-2)]">
-                  <Money value={essential.year_average} locale={locale} />
-                </strong>
+                {t(locale, 'cost.essentialNote')}
+                <br />
+                {t(locale, 'cost.monthlyNote')} {essential.months} {essential.months === 1 ? t(locale, 'cost.month') : t(locale, 'cost.months')}
               </>
             }
           />

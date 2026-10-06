@@ -45,22 +45,32 @@ export function PlannedBoard({
   resolved,
   sources,
   categories,
+  openId,
 }: {
   pending: Planned[];
   resolved: Planned[];
   sources: Source[];
   categories: { id: string; name: string }[];
+  /** From /planned?confirm=<id> — the notification's "Confirmar". */
+  openId?: string | undefined;
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState<Planned | 'new' | null>(null);
   const [confirming, setConfirming] = useState<Planned | null>(null);
   const [missed, setMissed] = useState<Planned | null>(null);
 
-  // Arriving from a notification (/planned#<id>) opens that plan's confirmation.
+  // Arriving from a notification opens that plan's confirmation — also when
+  // already on this page, since the query change re-renders with a new openId.
   useEffect(() => {
-    const id = window.location.hash.slice(1);
-    const hit = pending.find((p) => p.id === id);
+    const hit = pending.find((p) => p.id === openId);
     if (hit) setConfirming(hit);
-  }, [pending]);
+  }, [openId, pending]);
+
+  // Drop ?confirm= on close, so the same notification can open it again.
+  const closeConfirm = () => {
+    setConfirming(null);
+    if (openId) router.replace('/planned', { scroll: false });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -110,7 +120,7 @@ export function PlannedBoard({
       ) : null}
       {missed ? <MissedDialog plan={missed} onClose={() => setMissed(null)} /> : null}
       {confirming ? (
-        <ConfirmDialog plan={confirming} sources={sources} categories={categories} onClose={() => setConfirming(null)} />
+        <ConfirmDialog plan={confirming} sources={sources} categories={categories} onClose={closeConfirm} />
       ) : null}
     </div>
   );
@@ -387,10 +397,7 @@ function ConfirmDialog({
   const [fn, setFn] = useState<Fn | ''>(plan.cardFunction ?? '');
   const [installments, setInstallments] = useState('1');
   const [destinationId, setDestinationId] = useState(plan.destinationAccountId ?? '');
-  const { busy, error, send } = useSubmit(() => {
-    window.history.replaceState(null, '', '/planned');
-    onClose();
-  });
+  const { busy, error, send } = useSubmit(onClose);
 
   const source = sources.find((s) => s.id === sourceId);
   const isCard = source?.kind === 'CARD';
@@ -472,10 +479,7 @@ function MissedDialog({ plan, onClose }: { plan: Planned; onClose: () => void })
     d.setMonth(d.getMonth() + 1); // a month later is the usual "next time"
     return d.toLocaleDateString('sv-SE');
   });
-  const { busy, error, send } = useSubmit(() => {
-    window.history.replaceState(null, '', '/planned');
-    onClose();
-  });
+  const { busy, error, send } = useSubmit(onClose);
 
   return (
     <Dialog title={`Não aconteceu: ${plan.description}`} onClose={onClose}>

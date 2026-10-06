@@ -93,7 +93,7 @@ describe('BR40 — a planned transaction is a forecast, not a movement', () => {
     await notifications.evaluate(f.userId, '2026-08-07');
     const [n] = await notifications.list(f.userId);
     expect(n!.message).toContain('daqui a 3 dia(s)');
-    expect(n!.href).toBe(`/planned#${p.id}`);
+    expect(n!.href).toBe(`/planned?confirm=${p.id}`);
 
     await notifications.evaluate(f.userId, '2026-08-12');
     expect((await notifications.list(f.userId))[0]!.message).toContain('há 2 dia(s)');

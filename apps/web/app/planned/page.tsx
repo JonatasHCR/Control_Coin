@@ -5,7 +5,8 @@ import { Callout } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
 
 /** UC13: what may happen, and the confirmation of what did (BR40). */
-export default async function PlannedPage() {
+export default async function PlannedPage({ searchParams }: { searchParams: Promise<{ confirm?: string }> }) {
+  const { confirm } = await searchParams;
   const [planned, options] = await Promise.all([
     apiFetch<{ pending: Planned[]; resolved: Planned[] }>('/planned'),
     apiFetch<{ sources: Source[]; categories: { id: string; name: string }[] }>('/transactions/options'),
@@ -19,7 +20,7 @@ export default async function PlannedPage() {
           Despesas, receitas e transferências que podem acontecer. Perto da data o sino pergunta o que aconteceu.
         </p>
       </header>
-      <PlannedBoard pending={planned.pending} resolved={planned.resolved} sources={options.sources} categories={options.categories} />
+      <PlannedBoard pending={planned.pending} resolved={planned.resolved} sources={options.sources} categories={options.categories} openId={confirm} />
       <Callout>Um previsto não mexe em saldo, fatura nem relatório até você confirmar — ele pode não acontecer.</Callout>
     </AppShell>
   );

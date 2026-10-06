@@ -104,10 +104,10 @@ export class SummaryPdfService {
         (spent > Number(b.expenses) ? ' (compras no crédito só saem quando a fatura é paga)' : ''),
       left,
     );
-    // BR14: the closing month's essential spending, and the year's monthly average to it.
+    // BR14: the essential categories' limits, and the monthly average of all spending to the closing month.
     const endMonth = MONTHS[Number(to.slice(5, 7)) - 1];
     doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(
-      `Custo de vida (essencial) em ${endMonth}: ${brl(col.month_essential)} · média mensal em ${to.slice(0, 4)} (janeiro a ${endMonth}, ${col.months} ${col.months === 1 ? 'mês' : 'meses'}): ${brl(col.year_average)}`,
+      `Custo de vida — essencial (soma das metas das categorias essenciais): ${brl(col.month_essential)} · mensal (média de todos os gastos de janeiro a ${endMonth}, ${col.months} ${col.months === 1 ? 'mês' : 'meses'}): ${brl(col.year_average)}`,
     );
 
     const section = (title: string) => {
