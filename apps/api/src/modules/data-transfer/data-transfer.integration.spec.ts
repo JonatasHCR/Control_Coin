@@ -135,3 +135,13 @@ describe('CSV import as previstos (BR40)', () => {
   });
 });
 
+describe('CSV sign: minus is an expense, plus or no sign is an income', () => {
+  it('reads "+", "R$ -" and plain amounts', async () => {
+    const csv = ['data,descricao,valor', '2026-07-02,A,+120.00', '2026-07-03,B,R$ -45.00', '2026-07-04,C,10.00'].join(String.fromCharCode(10));
+    const result = await data.importCsv(f.userId, f.nubankId, csv, columns);
+    expect(result).toMatchObject({ imported: 3, errors: 0 });
+    const kinds = Object.fromEntries((await prisma.transaction.findMany()).map((t) => [t.description, t.kind]));
+    expect(kinds).toEqual({ A: 'INCOME', B: 'EXPENSE', C: 'INCOME' });
+  });
+});
+

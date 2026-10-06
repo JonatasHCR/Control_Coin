@@ -358,7 +358,7 @@ export function readAmount(cell: ExcelJS.Cell): { amount: Money; sign: number; l
   if (raw === '') throw new Error('empty amount');
 
   const sign = raw.startsWith('-') || raw.startsWith('(') ? -1 : 1;
-  const digits = raw.replace(/[()-]/g, '');
+  const digits = raw.replace(/[()+-]/g, '');
 
   const lastComma = digits.lastIndexOf(',');
   const lastDot = digits.lastIndexOf('.');

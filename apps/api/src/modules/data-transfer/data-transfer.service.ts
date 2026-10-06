@@ -157,7 +157,7 @@ export class DataTransferService {
       }
 
       // A positive amount is income, negative is expense — the statement's sign.
-      const isIncome = !rawAmount.startsWith('-');
+      const isIncome = !amount.startsWith('-'); // the parsed sign, so "R$ -45,00" is an expense
       const abs = amount.replace('-', '') as Money;
 
       await this.transactions.create(userId, {
@@ -220,17 +220,18 @@ export class DataTransferService {
 
     for (const row of parseCsv(csv).slice(1)) {
       const rawAmount = row[columns.amount]?.trim() ?? '';
-      let amount: Money;
+      let signed: Money;
       let date: string;
       try {
-        amount = parseAmount(rawAmount).replace('-', '') as Money;
+        signed = parseAmount(rawAmount);
         date = normaliseDate(row[columns.date]?.trim() ?? '');
-        if (Number(amount) <= 0) throw new Error();
+        if (Number(signed) === 0) throw new Error();
       } catch {
         errors += 1;
         continue;
       }
-      const kind = rawAmount.startsWith('-') ? 'EXPENSE' : 'INCOME';
+      const kind = signed.startsWith('-') ? 'EXPENSE' : 'INCOME';
+      const amount = signed.replace('-', '') as Money;
       const description = row[columns.description]?.trim() || (kind === 'EXPENSE' ? 'Despesa prevista' : 'Receita prevista');
 
       const k = key(kind, description, amount, date);
@@ -308,7 +309,7 @@ function parseCsv(text: string): string[][] {
 
 /** Parse an amount without ever touching a float (BR26). */
 function parseAmount(raw: string): Money {
-  const cleaned = raw.replace(/[R$\s]/g, '');
+  const cleaned = raw.replace(/[R$\s+]/g, ''); // "+120,00" is an explicit income
   // Accept both 1.234,56 (pt-BR) and 1234.56 by normalising the last separator.
   const lastComma = cleaned.lastIndexOf(',');
   const lastDot = cleaned.lastIndexOf('.');
