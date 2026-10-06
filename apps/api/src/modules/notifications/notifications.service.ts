@@ -174,7 +174,7 @@ export class NotificationsService {
               FROM settlement s JOIN entry e ON e.id = s.entry_id
               JOIN transaction t ON t.id = e.transaction_id
              WHERE t.kind = 'EXPENSE' AND e.side = 'SOURCE'
-               AND settlement_competence_month(s.invoice_id, s.due_on) = ${month}::date
+               AND settlement_competence_month(s.invoice_id, s.due_on, t.occurred_on, s.sequence_no) = ${month}::date
              GROUP BY t.category_id
           ) spent ON spent.category_id = c.id
          WHERE c.id = ${rule.targetId}::uuid`;

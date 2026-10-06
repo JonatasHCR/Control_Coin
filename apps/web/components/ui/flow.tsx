@@ -36,11 +36,28 @@ export function FlowStep({
           ? 'text-[var(--color-ink-2)]'
           : '';
 
+  // The title carries the step: bold, ink-coloured, with the figure's colour as a marker.
+  const marker =
+    variant === 'in'
+      ? 'bg-[var(--color-positive)]'
+      : variant === 'out'
+        ? 'bg-[var(--color-bad)]'
+        : variant === 'result'
+          ? 'bg-[var(--color-accent)]'
+          : 'bg-[var(--color-ink-2)]';
+
   return (
     <div className={`min-w-0 flex-1 basis-40 px-4 py-3.5 ${surface}`}>
-      <div className="label mb-1.5 flex items-center gap-1.5">
-        <span className="truncate">{label}</span>
-        {tag ? <span className="font-normal text-[var(--color-faint)]">· {tag}</span> : null}
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-[3px] ${marker}`} aria-hidden />
+        <span
+          className={`truncate font-[family-name:var(--font-display)] text-[13px] font-bold uppercase tracking-[0.02em] ${
+            variant === 'result' ? 'text-[var(--color-accent)]' : 'text-[var(--color-ink)]'
+          }`}
+        >
+          {label}
+        </span>
+        {tag ? <span className="text-[11px] text-[var(--color-muted)]">· {tag}</span> : null}
       </div>
       <div className={`figure text-[19px] font-semibold ${figure}`}>{value}</div>
       {note ? <div className="mt-0.5 text-[11px] text-[var(--color-muted)]">{note}</div> : null}

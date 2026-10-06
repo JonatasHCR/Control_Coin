@@ -59,7 +59,7 @@ export class ReportsController {
     const month = `${period ?? new Date().toISOString().slice(0, 7)}-01`;
     const wallets = parseScope(scope);
 
-    const [balance, costOfLiving, categories, variance, invoices, wallets_, debts] =
+    const [balance, costOfLiving, categories, variance, invoices, wallets_, debts, essentialCost] =
       await Promise.all([
         this.reports.periodBalance(userId, month, wallets),
         this.reports.costOfLiving(userId, Number(months ?? 6), wallets),
@@ -68,9 +68,10 @@ export class ReportsController {
         this.reports.invoices(userId, wallets),
         this.reports.walletBalances(userId),
         this.reports.debts(userId),
+        this.reports.essentialCost(userId, month, wallets),
       ]);
 
-    return { period: month.slice(0, 7), balance, costOfLiving, categories, variance, invoices, wallets: wallets_, debts };
+    return { period: month.slice(0, 7), balance, costOfLiving, essentialCost, categories, variance, invoices, wallets: wallets_, debts };
   }
 }
 

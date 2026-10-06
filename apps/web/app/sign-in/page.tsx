@@ -57,7 +57,7 @@ export default async function SignInPage({
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      {/* Left: a deep sage brand panel — the modern-fintech split login. */}
+      {/* Left: a deep petrol brand panel — the modern-fintech split login. */}
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-[var(--color-brand-panel)] p-12 text-white lg:flex">
         <div
           className="pointer-events-none absolute inset-0 opacity-30"

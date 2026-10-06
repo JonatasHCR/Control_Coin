@@ -35,7 +35,7 @@ export class BudgetsService {
         JOIN entry e       ON e.id = s.entry_id
         JOIN transaction t ON t.id = e.transaction_id
        WHERE t.user_id = ${userId}::uuid AND t.kind = 'EXPENSE' AND e.side = 'SOURCE'
-         AND settlement_competence_month(s.invoice_id, s.due_on) = ${periodStart}::date
+         AND settlement_competence_month(s.invoice_id, s.due_on, t.occurred_on, s.sequence_no) = ${periodStart}::date
        GROUP BY t.category_id`;
 
     const spentOf = (categoryId: string): string =>

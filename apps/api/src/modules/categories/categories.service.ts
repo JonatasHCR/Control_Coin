@@ -30,7 +30,7 @@ export class CategoriesService {
     const averages = await this.prisma.$queryRaw<{ category_id: string; average: unknown }[]>`
       SELECT t.category_id::text,
              ROUND(SUM(s.amount) / GREATEST(COUNT(DISTINCT
-               settlement_competence_month(s.invoice_id, s.due_on)), 1), 2) AS average
+               settlement_competence_month(s.invoice_id, s.due_on, t.occurred_on, s.sequence_no)), 1), 2) AS average
         FROM settlement s
         JOIN entry e       ON e.id = s.entry_id
         JOIN transaction t ON t.id = e.transaction_id

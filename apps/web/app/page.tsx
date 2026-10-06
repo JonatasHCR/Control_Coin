@@ -33,7 +33,7 @@ export default async function DashboardPage({
   ]);
 
   const balance = data.balance;
-  const cost = data.costOfLiving;
+  const essential = data.essentialCost;
   const committed = data.invoices.reduce((sum, i) => sum + Number(i.open_amount), 0).toFixed(2);
   const overdue = data.invoices.filter((i) => i.is_overdue);
   const spent = data.categories.reduce((sum, c) => sum + Number(c.total), 0).toFixed(2);
@@ -70,23 +70,10 @@ export default async function DashboardPage({
       {balance ? (
         <Flow>
           <FlowStep
-            variant="carried"
-            label={t(locale, 'period.opening')}
-            tag={t(locale, 'period.carried')}
-            value={<Money value={balance.opening_balance} locale={locale} />}
-            note={t(locale, 'period.fromLast')}
-          />
-          <FlowOp>+</FlowOp>
-          <FlowStep
             variant="in"
             label={t(locale, 'period.income')}
             tag={t(locale, 'period.thisMonth')}
             value={<Money value={balance.income} locale={locale} />}
-            note={
-              <>
-                {t(locale, 'stat.available')}: <Money value={balance.available} locale={locale} />
-              </>
-            }
           />
           <FlowOp>−</FlowOp>
           <FlowStep
@@ -97,29 +84,30 @@ export default async function DashboardPage({
             note={t(locale, 'period.settledOnly')}
           />
           <FlowOp>=</FlowOp>
+          {/* The month on its own: the carried balance (BR34) is left out of the strip. */}
           <FlowStep
             variant="result"
-            label={t(locale, 'period.closing')}
-            value={<Money value={balance.closing_balance} locale={locale} />}
-            note={t(locale, 'period.opensNext')}
+            label={t(locale, 'period.result')}
+            value={<Money value={(Number(balance.income) - Number(balance.expenses)).toFixed(2)} locale={locale} />}
+            note={t(locale, 'period.resultNote')}
           />
           <FlowStep
             label={t(locale, 'stat.committed')}
             value={<Money value={committed} locale={locale} />}
             note={t(locale, 'stat.committedNote')}
           />
+          {/* BR14: the month's essential spending, and the year's monthly average beside it. */}
           <FlowStep
             label={t(locale, 'cost.title')}
-            value={<Money value={cost?.average_expense ?? '0.00'} locale={locale} />}
+            tag={t(locale, 'cost.essentialTag')}
+            value={<Money value={essential.month_essential} locale={locale} />}
             note={
-              cost && cost.months_used > 0 ? (
-                <>
-                  {cost.months_used} {t(locale, 'cost.window')} · {t(locale, 'cost.essential')}{' '}
-                  <Money value={cost.average_essential} locale={locale} />
-                </>
-              ) : (
-                t(locale, 'cost.none')
-              )
+              <>
+                {t(locale, 'cost.yearAverage')} ({essential.months} {essential.months === 1 ? t(locale, 'cost.month') : t(locale, 'cost.months')}):{' '}
+                <strong className="text-[var(--color-ink-2)]">
+                  <Money value={essential.year_average} locale={locale} />
+                </strong>
+              </>
             }
           />
         </Flow>

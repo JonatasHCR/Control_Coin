@@ -62,6 +62,8 @@ export interface Dashboard {
     min_month: string;
     max_month: string;
   } | null;
+  /** BR14: essential spending of the month, and its monthly average for the year so far. */
+  essentialCost: { month_essential: string; year_average: string; months: number };
   categories: { category_id: string | null; name: string | null; is_essential: boolean | null; total: string }[];
   variance: { category_id: string; name: string; is_essential: boolean; monthly_target: string | null; actual: string; variance: string | null }[];
   invoices: { invoice_id: string; card_id: string; reference_month: string; status: string; due_on: string; charged: string; paid: string; open_amount: string; is_overdue: boolean; days_overdue: number }[];

@@ -36,6 +36,12 @@ const costOfLivingRow = z.object({
   max_month: numeric,
 });
 
+const essentialCostRow = z.object({
+  month_essential: numeric,
+  year_average: numeric,
+  months: z.unknown().transform((v) => Number(String(v))),
+});
+
 const categoryTotalRow = z.object({
   category_id: z.string().nullable(),
   name: z.string().nullable(),
@@ -83,6 +89,23 @@ export class ReportsRepository {
     return costOfLivingRow.array().parse(rows)[0] ?? null;
   }
 
+  /**
+   * BR14: the month's cost of living is what it spent in ESSENTIAL categories;
+   * beside it, the year's monthly average = January through that month ÷ the
+   * month's number (the month itself included, complete or not).
+   */
+  async essentialCost(userId: string, month: string, wallets: string[] | null) {
+    const rows = await this.prisma.$queryRaw`
+      SELECT COALESCE(SUM(essential_total) FILTER (WHERE month = date_trunc('month', ${month}::date)::date), 0) AS month_essential,
+             COALESCE(SUM(essential_total), 0) / EXTRACT(MONTH FROM ${month}::date) AS year_average,
+             EXTRACT(MONTH FROM ${month}::date)::int AS months
+        FROM v_monthly_expense
+       WHERE user_id = ${userId}::uuid
+         AND month BETWEEN date_trunc('year', ${month}::date)::date AND date_trunc('month', ${month}::date)::date
+         AND (${wallets}::uuid[] IS NULL OR wallet_id = ANY (${wallets}::uuid[]))`;
+    return essentialCostRow.array().parse(rows)[0]!;
+  }
+
   /** BR01/BR13: Uncategorized is shown, never dropped; kinds are never netted. */
   async categoryBreakdown(userId: string, month: string) {
     const rows = await this.prisma.$queryRaw`
@@ -97,7 +120,7 @@ export class ReportsRepository {
        WHERE t.user_id = ${userId}::uuid
          AND t.kind = 'EXPENSE'
          AND e.side = 'SOURCE'
-         AND settlement_competence_month(s.invoice_id, s.due_on)
+         AND settlement_competence_month(s.invoice_id, s.due_on, t.occurred_on, s.sequence_no)
              = date_trunc('month', ${month}::date)::date
        GROUP BY c.id, c.name, c.is_essential
        ORDER BY SUM(s.amount) DESC`;

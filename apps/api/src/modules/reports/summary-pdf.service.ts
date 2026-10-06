@@ -8,7 +8,7 @@ import { ReportsRepository } from './reports.repository.js';
 const INK = '#1f2328';
 const MUTED = '#6b7280';
 const RULE = '#e5e7eb';
-const ACCENT = '#2563eb';
+const ACCENT = '#1d6a85'; // the app's petrol accent
 const GOOD = '#15803d';
 const BAD = '#b91c1c';
 
@@ -32,7 +32,7 @@ export class SummaryPdfService {
     const [balanceRows, monthly, col, categories, targets, invoices, debts, accounts, top, cards] = await Promise.all([
       this.balance(userId, from, to),
       this.monthly(userId, from, to),
-      this.reports.costOfLiving(userId, 6, null),
+      this.reports.essentialCost(userId, `${to.slice(0, 7)}-01`, null),
       this.categories(userId, from, to),
       this.prisma.category.findMany({ where: { userId, archived: false, monthlyTarget: { not: null } } }),
       this.reports.invoices(userId, null),
@@ -104,11 +104,11 @@ export class SummaryPdfService {
         (spent > Number(b.expenses) ? ' (compras no crédito só saem quando a fatura é paga)' : ''),
       left,
     );
-    if (col && col.months_used > 0) {
-      doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(
-        `Custo de vida médio (${col.months_used} ${col.months_used === 1 ? 'mês completo' : 'meses completos'}): ${brl(col.average_expense)} — essencial ${brl(col.average_essential)}, não essencial ${brl(col.average_discretionary)}`,
-      );
-    }
+    // BR14: the closing month's essential spending, and the year's monthly average to it.
+    const endMonth = MONTHS[Number(to.slice(5, 7)) - 1];
+    doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(
+      `Custo de vida (essencial) em ${endMonth}: ${brl(col.month_essential)} · média mensal em ${to.slice(0, 4)} (janeiro a ${endMonth}, ${col.months} ${col.months === 1 ? 'mês' : 'meses'}): ${brl(col.year_average)}`,
+    );
 
     const section = (title: string) => {
       if (doc.y > doc.page.height - 140) doc.addPage();
