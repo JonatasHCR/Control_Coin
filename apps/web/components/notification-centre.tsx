@@ -12,6 +12,7 @@ interface Item {
   message: string;
   raisedAt: string;
   read: boolean;
+  href: string | null;
 }
 
 /**
@@ -124,6 +125,18 @@ export function NotificationCentre({ locale }: { locale: Locale }) {
                       {new Date(n.raisedAt).toLocaleDateString(locale)}
                     </p>
                   </button>
+                  {n.href ? (
+                    <Link
+                      href={n.href}
+                      onClick={() => {
+                        setOpen(false);
+                        if (!n.read) void markOneRead(n.id);
+                      }}
+                      className="shrink-0 rounded-md border border-[var(--color-rule)] px-2 py-1 text-[11px] font-semibold text-[var(--color-accent)] hover:bg-[var(--color-well)]"
+                    >
+                      {n.type === 'PLANNED_DUE' ? 'Confirmar' : 'Ver'}
+                    </Link>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => dismiss(n.id)}

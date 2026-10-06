@@ -16,6 +16,8 @@ import { PrismaService } from '../../database/prisma.service.js';
  *  - overdue invoices notify with no rule and no off switch — an unpaid card is
  *    not a preference (BR32).
  */
+const KIND_LABEL: Record<string, string> = { EXPENSE: 'Despesa', INCOME: 'Receita', TRANSFER: 'Transferência' };
+
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -33,6 +35,7 @@ export class NotificationsService {
       message: n.message,
       raisedAt: n.raisedAt.toISOString(),
       read: n.readAt !== null,
+      href: n.subjectType === 'PLANNED' ? `/planned#${n.subjectId}` : n.subjectType === 'INVOICE' ? '/invoices' : null,
     }));
   }
 
@@ -234,6 +237,40 @@ export class NotificationsService {
           where: { id: n.id },
           data: { withdrawnAt: new Date() },
         });
+        withdrawn += 1;
+      }
+    }
+
+    // BR40 — planned transactions ask to be confirmed from their reminder
+    // window on, and keep asking while unresolved. Not opt-in: the user asked
+    // for the reminder when they set the plan.
+    const planned = await this.prisma.$queryRaw<
+      { id: string; kind: string; description: string; amount: unknown; days_until: number }[]
+    >`
+      SELECT id::text, kind, description, amount, (expected_on - ${today}::date) AS days_until
+        FROM planned_transaction
+       WHERE user_id = ${userId}::uuid AND status = 'PENDING'
+         AND expected_on - notify_days_before <= ${today}::date`;
+    const plannedLive = new Set<string>();
+    for (const p of planned) {
+      plannedLive.add(p.id);
+      const value = Number(String(p.amount)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const what = `${KIND_LABEL[p.kind] ?? p.kind} "${p.description}" (${value})`;
+      const left = Number(p.days_until);
+      const message =
+        left > 0
+          ? `${what} prevista para daqui a ${left} dia(s) — confirme quando acontecer`
+          : left === 0
+            ? `${what} prevista para hoje — aconteceu? Confirme`
+            : `${what} prevista há ${-left} dia(s) — aconteceu? Confirme ou marque que não aconteceu`;
+      if (await this.raiseOrUpdate({ userId, type: 'PLANNED_DUE', subjectType: 'PLANNED', subjectId: p.id, message })) raised += 1;
+    }
+    const livePlanned = await this.prisma.notification.findMany({
+      where: { userId, type: 'PLANNED_DUE', withdrawnAt: null, dismissedAt: null },
+    });
+    for (const n of livePlanned) {
+      if (n.subjectId && !plannedLive.has(n.subjectId)) {
+        await this.prisma.notification.update({ where: { id: n.id }, data: { withdrawnAt: new Date() } });
         withdrawn += 1;
       }
     }

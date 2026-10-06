@@ -102,3 +102,36 @@ describe('BR25 — export at two levels', () => {
     expect(csv).toMatch(/# Control_Coin export · level=transaction/);
   });
 });
+
+describe('CSV import with a category column', () => {
+  it('matches existing categories ignoring case and creates missing ones', async () => {
+    const csv = ['data,descricao,valor,categoria', '2026-07-02,PADARIA,-45.00,food', '2026-07-03,CINEMA,-30.00,Lazer', '2026-07-04,PIX,50.00,'].join('\n');
+    const result = await data.importCsv(f.userId, f.nubankId, csv, { date: 0, description: 1, amount: 2, category: 3 });
+    expect(result.imported).toBe(3);
+    expect(result.categoriesCreated).toEqual(['Lazer']);
+
+    const padaria = await prisma.transaction.findFirstOrThrow({ where: { description: 'PADARIA' } });
+    expect(padaria.categoryId).toBe(f.foodCategoryId);
+    const pix = await prisma.transaction.findFirstOrThrow({ where: { description: 'PIX' } });
+    expect(pix.categoryId).toBeNull();
+  });
+});
+
+describe('CSV import as previstos (BR40)', () => {
+  const csv = ['data,descricao,valor,categoria', '2026-09-10,IPVA,-1200.00,Food', '2026-12-20,13o,3000.00,'].join('\n');
+  const columns = { date: 0, description: 1, amount: 2, category: 3 };
+
+  it('creates pending plans that change no balance, once', async () => {
+    const result = await data.importCsvPlanned(f.userId, f.nubankId, csv, columns, 5);
+    expect(result.imported).toBe(2);
+    expect(await prisma.transaction.count()).toBe(0);
+
+    const ipva = await prisma.plannedTransaction.findFirstOrThrow({ where: { description: 'IPVA' } });
+    expect(ipva).toMatchObject({ kind: 'EXPENSE', status: 'PENDING', accountId: f.nubankId, categoryId: f.foodCategoryId, notifyDaysBefore: 5 });
+    expect((await prisma.plannedTransaction.findFirstOrThrow({ where: { description: '13o' } })).kind).toBe('INCOME');
+
+    const again = await data.importCsvPlanned(f.userId, f.nubankId, csv, columns, 5);
+    expect(again).toMatchObject({ imported: 0, duplicates: 2 });
+  });
+});
+

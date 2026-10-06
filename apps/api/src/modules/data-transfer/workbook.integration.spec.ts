@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { WorkbookService } from './workbook.service.js';
+import { PARTS, WorkbookService } from './workbook.service.js';
 import { prisma, resetDatabase, seed, transactions, type Fixture } from '../../../test/harness.js';
 
 const workbook = new WorkbookService(prisma as never, transactions);
@@ -16,7 +16,7 @@ beforeEach(async () => {
 /** Download the template, let `fill` type into it, and hand back the file. */
 async function filled(fill: (wb: ExcelJS.Workbook) => void): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load((await workbook.template(f.userId)) as unknown as ArrayBuffer);
+  await wb.xlsx.load((await workbook.template(f.userId, PARTS)) as unknown as ArrayBuffer);
   fill(wb);
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
@@ -31,7 +31,7 @@ const append = (wb: ExcelJS.Workbook, sheet: string, values: unknown[]) => {
 describe('UC09 — fill-in workbook', () => {
   it('comes pre-filled with the existing cadastros', async () => {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load((await workbook.template(f.userId)) as unknown as ArrayBuffer);
+    await wb.xlsx.load((await workbook.template(f.userId, PARTS)) as unknown as ArrayBuffer);
     expect(wb.getWorksheet('Contas')!.getCell('A2').value).toBeTruthy();
     expect(wb.getWorksheet('Cartões')!.getCell('A2').value).toBe('Buy');
   });
@@ -69,5 +69,38 @@ describe('UC09 — fill-in workbook', () => {
       detail: { errors: [expect.stringContaining('Lançamentos, linha 2')] },
     });
     expect(await prisma.account.count({ where: { name: 'Nova' } })).toBe(0);
+  });
+
+  it('downloads only the parts picked, with dropdowns fed from the hidden list', async () => {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await workbook.template(f.userId, ['entries'])) as unknown as ArrayBuffer);
+    expect(wb.worksheets.map((s) => s.name)).toEqual(['Como preencher', 'Lançamentos', 'Listas']);
+    expect(wb.getWorksheet('Listas')!.state).toBe('hidden');
+    expect(wb.getWorksheet('Lançamentos')!.getCell('E2').dataValidation.formulae![0]).toContain('Listas');
+  });
+
+  it('a Lançamentos-only file resolves existing accounts and cards', async () => {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await workbook.template(f.userId, ['entries'])) as unknown as ArrayBuffer);
+    wb.getWorksheet('Lançamentos')!.getRow(2).values = [new Date('2026-07-10'), 'Despesa', 'Feira', 80, '', 'Food', '', '', 'Food'];
+    const result = await workbook.import(f.userId, Buffer.from(await wb.xlsx.writeBuffer()));
+    expect(result.created.transactions).toBe(1);
+  });
+
+  it('imports previstos as pending plans that change no balance (BR40), once', async () => {
+    const file = await filled((wb) => {
+      append(wb, 'Previstos', [new Date('2026-09-10'), 'Despesa', 'IPVA', 1200, 'Nubank', '', '', 'Food', '', 5]);
+      append(wb, 'Previstos', [new Date('2026-12-20'), 'Receita', '13º salário', 3000]);
+    });
+    const result = await workbook.import(f.userId, file);
+    expect(result.created.planned).toBe(2);
+    expect(await prisma.transaction.count()).toBe(0);
+    const ipva = await prisma.plannedTransaction.findFirstOrThrow({ where: { description: 'IPVA' } });
+    expect(ipva.notifyDaysBefore).toBe(5);
+    expect(ipva.status).toBe('PENDING');
+
+    const again = await workbook.import(f.userId, file);
+    expect(again.created.planned).toBe(0);
+    expect(await prisma.plannedTransaction.count()).toBe(2);
   });
 });

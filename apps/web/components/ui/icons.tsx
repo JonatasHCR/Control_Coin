@@ -97,6 +97,12 @@ const NAV_GLYPHS = {
       <path d="M3 9h18" />
     </>
   ),
+  planned: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
   categories: <path d="M4 6h16M4 12h16M4 18h11" />,
   data: <path d="M12 3v12M8 11l4 4 4-4M4 19h16" />,
   prefs: (

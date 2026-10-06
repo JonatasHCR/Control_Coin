@@ -28,6 +28,7 @@ const TABLES = [
   'goals',
   'goalContributions',
   'alertRules',
+  'planned',
 ] as const;
 
 type Table = (typeof TABLES)[number];
@@ -45,7 +46,7 @@ export class BackupService {
   async export(userId: string): Promise<Backup> {
     const p = this.prisma;
     const user = await p.user.findUniqueOrThrow({ where: { id: userId } });
-    const [wallets, accounts, cards, categories, series, transactions, entries, invoices, settlements, budgets, goals, goalContributions, alertRules] =
+    const [wallets, accounts, cards, categories, series, transactions, entries, invoices, settlements, budgets, goals, goalContributions, alertRules, planned] =
       await Promise.all([
         p.wallet.findMany({ where: { userId } }),
         p.account.findMany({ where: { userId } }),
@@ -60,6 +61,7 @@ export class BackupService {
         p.goal.findMany({ where: { userId } }),
         p.goalContribution.findMany({ where: { goal: { userId } } }),
         p.alertRule.findMany({ where: { userId } }),
+        p.plannedTransaction.findMany({ where: { userId } }),
       ]);
 
     const strip = (rows: Row[]) => rows.map(({ userId: _u, ...rest }) => rest);
@@ -81,6 +83,7 @@ export class BackupService {
       goals: strip(goals),
       goalContributions,
       alertRules: strip(alertRules),
+      planned: strip(planned),
     };
   }
 
@@ -142,6 +145,18 @@ export class BackupService {
           // targetId has no FK; a target that wasn't in the backup becomes "any".
           data: b.alertRules.map((r) => ({ ...r, id: id(r.id)!, userId, targetId: r.targetId ? (ids.get(r.targetId) ?? null) : null })) as never,
         });
+        await tx.plannedTransaction.createMany({
+          data: b.planned.map((r) => ({
+            ...r,
+            id: id(r.id)!,
+            userId,
+            categoryId: id(r.categoryId),
+            accountId: id(r.accountId),
+            cardId: id(r.cardId),
+            destinationAccountId: id(r.destinationAccountId),
+            transactionId: r.transactionId ? (ids.get(r.transactionId) ?? null) : null,
+          })) as never,
+        });
       },
       { timeout: 300_000, maxWait: 10_000 },
     );
@@ -175,6 +190,7 @@ function pick(row: Row, keys: string[]): Row {
 /** Children before parents: several FKs are ON DELETE RESTRICT. */
 async function wipe(tx: Prisma.TransactionClient, userId: string): Promise<void> {
   await tx.notification.deleteMany({ where: { userId } });
+  await tx.plannedTransaction.deleteMany({ where: { userId } });
   await tx.alertRule.deleteMany({ where: { userId } });
   await tx.transaction.deleteMany({ where: { userId } }); // cascades entries and settlements
   await tx.importBatch.deleteMany({ where: { userId } });

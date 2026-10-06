@@ -22,13 +22,15 @@ import { AuthGuard } from '../../common/guards/auth.guard.js';
 import { ZodPipe } from '../../common/pipes/zod.pipe.js';
 import { BackupService } from './backup.service.js';
 import { DataTransferService } from './data-transfer.service.js';
-import { WorkbookService } from './workbook.service.js';
+import { PARTS, type Part, WorkbookService } from './workbook.service.js';
 import { XlsxService } from './xlsx.service.js';
 
 const importInput = z.object({
   accountId: z.string().uuid(),
   csv: z.string().min(1),
-  columns: z.object({ date: z.number().int(), amount: z.number().int(), description: z.number().int() }),
+  columns: z.object({ date: z.number().int(), amount: z.number().int(), description: z.number().int(), category: z.number().int().optional() }),
+  as: z.enum(['transactions', 'planned']).default('transactions'),
+  notifyDaysBefore: z.number().int().min(0).max(60).default(3),
 });
 
 @Controller('data')
@@ -43,8 +45,9 @@ export class DataTransferController {
 
   /** The fill-in workbook, pre-filled with the user's cadastros. */
   @Get('template.xlsx')
-  async template(@CurrentUser() userId: string, @Res() res: Response): Promise<void> {
-    const buffer = await this.workbook.template(userId);
+  async template(@CurrentUser() userId: string, @Res() res: Response, @Query('parts') parts?: string): Promise<void> {
+    const picked = (parts ?? '').split(',').filter((p): p is Part => (PARTS as readonly string[]).includes(p));
+    const buffer = await this.workbook.template(userId, picked.length > 0 ? picked : ['entries']);
     res
       .status(200)
       .setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -101,7 +104,9 @@ export class DataTransferController {
 
   @Post('import')
   importCsv(@CurrentUser() userId: string, @Body(new ZodPipe(importInput)) body: z.infer<typeof importInput>) {
-    return this.data.importCsv(userId, body.accountId, body.csv, body.columns);
+    return body.as === 'planned'
+      ? this.data.importCsvPlanned(userId, body.accountId, body.csv, body.columns, body.notifyDaysBefore)
+      : this.data.importCsv(userId, body.accountId, body.csv, body.columns);
   }
 
   /** BR26: Excel import — read safely, handle the four hazards. */

@@ -9,6 +9,7 @@ import { ERROR_CODES } from '@cc/domain/rules';
 import { DomainError } from '../../common/errors/domain-error.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { TransactionsService } from '../transactions/transactions.service.js';
+import { categoryMatcher } from './category-matcher.js';
 
 /**
  * Import and export (UC09).
@@ -107,8 +108,8 @@ export class DataTransferService {
     userId: string,
     accountId: string,
     csv: string,
-    columns: { date: number; amount: number; description: number },
-  ): Promise<{ imported: number; duplicates: number; errors: number; batchId: string }> {
+    columns: { date: number; amount: number; description: number; category?: number | undefined },
+  ): Promise<{ imported: number; duplicates: number; errors: number; batchId: string; categoriesCreated: string[] }> {
     const account = await this.prisma.account.findFirst({ where: { id: accountId, userId } });
     if (!account) throw new DomainError(ERROR_CODES.NOT_FOUND, 'account not found');
 
@@ -117,6 +118,7 @@ export class DataTransferService {
     });
 
     const dataRows = parseCsv(csv).slice(1); // skip the header
+    const categories = await categoryMatcher(this.prisma, userId);
     let imported = 0;
     let duplicates = 0;
     let errors = 0;
@@ -161,7 +163,9 @@ export class DataTransferService {
       await this.transactions.create(userId, {
         kind: isIncome ? 'INCOME' : 'EXPENSE',
         occurrenceType: 'OCCASIONAL',
-        categoryId: null, // BR01/BR24: imports land Uncategorized
+        // BR01: a statement rarely says what a purchase was for; when the
+        // user maps a category column, it does.
+        categoryId: columns.category === undefined ? null : await categories.resolve(row[columns.category]),
         description,
         occurredOn: date,
         totalAmount: abs,
@@ -182,7 +186,78 @@ export class DataTransferService {
       data: { rowCount: imported, errorCount: errors },
     });
 
-    return { imported, duplicates, errors, batchId: batch.id };
+    return { imported, duplicates, errors, batchId: batch.id, categoriesCreated: categories.created };
+  }
+
+  /**
+   * The same CSV as previstos (BR40): pending plans on the chosen account, the
+   * sign deciding expense or income. A plan already there (same kind,
+   * description, amount, date) is a duplicate; the n-th identical row in the
+   * file is new only if fewer than n exist.
+   */
+  async importCsvPlanned(
+    userId: string,
+    accountId: string,
+    csv: string,
+    columns: { date: number; amount: number; description: number; category?: number | undefined },
+    notifyDaysBefore: number,
+  ): Promise<{ imported: number; duplicates: number; errors: number; categoriesCreated: string[] }> {
+    const account = await this.prisma.account.findFirst({ where: { id: accountId, userId } });
+    if (!account) throw new DomainError(ERROR_CODES.NOT_FOUND, 'account not found');
+
+    const categories = await categoryMatcher(this.prisma, userId);
+    const key = (kind: string, description: string, amount: string, date: string) =>
+      [kind, description.trim().toLowerCase(), amount, date].join('|');
+    const existing = new Map<string, number>();
+    for (const p of await this.prisma.plannedTransaction.findMany({ where: { userId } })) {
+      const k = key(p.kind, p.description, p.amount.toFixed(2), p.expectedOn.toISOString().slice(0, 10));
+      existing.set(k, (existing.get(k) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    let imported = 0;
+    let duplicates = 0;
+    let errors = 0;
+
+    for (const row of parseCsv(csv).slice(1)) {
+      const rawAmount = row[columns.amount]?.trim() ?? '';
+      let amount: Money;
+      let date: string;
+      try {
+        amount = parseAmount(rawAmount).replace('-', '') as Money;
+        date = normaliseDate(row[columns.date]?.trim() ?? '');
+        if (Number(amount) <= 0) throw new Error();
+      } catch {
+        errors += 1;
+        continue;
+      }
+      const kind = rawAmount.startsWith('-') ? 'EXPENSE' : 'INCOME';
+      const description = row[columns.description]?.trim() || (kind === 'EXPENSE' ? 'Despesa prevista' : 'Receita prevista');
+
+      const k = key(kind, description, amount, date);
+      const n = (seen.get(k) ?? 0) + 1;
+      seen.set(k, n);
+      if ((existing.get(k) ?? 0) >= n) {
+        duplicates += 1;
+        continue;
+      }
+
+      await this.prisma.plannedTransaction.create({
+        data: {
+          userId,
+          kind,
+          description,
+          amount,
+          currency: account.currency,
+          expectedOn: new Date(date),
+          accountId,
+          categoryId: columns.category === undefined ? null : await categories.resolve(row[columns.category]),
+          notifyDaysBefore,
+        },
+      });
+      imported += 1;
+    }
+
+    return { imported, duplicates, errors, categoriesCreated: categories.created };
   }
 }
 

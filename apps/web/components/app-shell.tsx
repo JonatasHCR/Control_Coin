@@ -20,6 +20,7 @@ async function signOut(): Promise<void> {
 const NAV: { href: string; key: MessageKey; icon: NavIconName; chord: string | null }[] = [
   { href: '/', key: 'nav.dashboard', icon: 'dashboard', chord: 'd' },
   { href: '/transactions', key: 'nav.transactions', icon: 'transactions', chord: 't' },
+  { href: '/planned', key: 'nav.planned', icon: 'planned', chord: null },
   { href: '/accounts', key: 'nav.accounts', icon: 'accounts', chord: 'a' },
   { href: '/planning', key: 'nav.planning', icon: 'planning', chord: 'p' },
   { href: '/invoices', key: 'nav.invoices', icon: 'invoices', chord: 'f' },

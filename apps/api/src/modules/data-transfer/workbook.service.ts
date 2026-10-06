@@ -12,8 +12,8 @@ import { TransactionsService } from '../transactions/transactions.service.js';
 import { cellText, isBlank, readAmount, readDate } from './xlsx.service.js';
 
 /**
- * The fill-in workbook (UC09): only what a person types — cadastros and
- * lançamentos, with dropdowns. Balances, invoices, installments and every
+ * The fill-in workbook (UC09): only what a person types — cadastros,
+ * lançamentos and previstos, with dropdowns, and only the parts asked for. Balances, invoices, installments and every
  * average are derived on import (BR36), so the sheet has no column for them.
  *
  * Import is two passes: validate the whole file against existing data plus
@@ -96,7 +96,25 @@ const SHEETS = {
       { key: 'destination', header: 'Conta destino', width: 24, note: 'Só para transferência' },
     ],
   },
+  planned: {
+    name: 'Previstos',
+    cols: [
+      { key: 'date', header: 'Data prevista', width: 14, note: 'Quando deve acontecer', required: true },
+      { key: 'kind', header: 'Tipo', width: 15, note: 'Despesa, Receita ou Transferência', required: true },
+      { key: 'description', header: 'Descrição', width: 30, note: 'Ex.: IPVA, 13º salário', required: true },
+      { key: 'amount', header: 'Valor', width: 13, note: 'Valor previsto, sem sinal', required: true },
+      { key: 'account', header: 'Conta', width: 24, note: 'Opcional: conta prevista. Preencha Conta OU Cartão' },
+      { key: 'card', header: 'Cartão', width: 22, note: 'Opcional: só para despesa' },
+      { key: 'cardFunction', header: 'Função', width: 10, note: 'Crédito ou Débito. Vazio = crédito se o cartão tiver' },
+      { key: 'category', header: 'Categoria', width: 22, note: 'Opcional' },
+      { key: 'destination', header: 'Conta destino', width: 24, note: 'Opcional: só para transferência' },
+      { key: 'notify', header: 'Avisar dias antes', width: 16, note: 'De 0 a 60. Vazio = 3' },
+    ],
+  },
 } satisfies Record<string, { name: string; cols: Col[] }>;
+
+export const PARTS = ['wallets', 'accounts', 'cards', 'categories', 'entries', 'planned'] as const;
+export type Part = (typeof PARTS)[number];
 
 /** "Como aparece nas listas": the label dropdowns pick, unique even when names repeat. */
 const PICK = 'Como aparece nas listas';
@@ -115,7 +133,13 @@ export class WorkbookService {
 
   // ── Template ─────────────────────────────────────────────────────────────
 
-  async template(userId: string): Promise<Buffer> {
+  /**
+   * Only the parts the user picked, so there is one obvious place to type. A
+   * dropdown reads the picked sheet when it is in the file (so a row added
+   * there is offered at once), else a hidden "Listas" sheet of what exists.
+   */
+  async template(userId: string, parts: readonly Part[] = ['entries']): Promise<Buffer> {
+    const has = (p: Part) => parts.includes(p);
     const [wallets, accounts, cards, categories] = await Promise.all([
       this.prisma.wallet.findMany({ where: { userId, archived: false }, orderBy: { name: 'asc' } }),
       this.prisma.account.findMany({ where: { userId, archived: false }, include: { wallet: true }, orderBy: { name: 'asc' } }),
@@ -123,72 +147,124 @@ export class WorkbookService {
       this.prisma.category.findMany({ where: { userId, archived: false }, include: { parent: true }, orderBy: { name: 'asc' } }),
     ]);
     const accountLabel = labeller(accounts.map((a) => ({ name: a.name, scope: a.wallet?.name ?? NO_WALLET })));
+    const accountOf = (a: (typeof accounts)[number]) => accountLabel(a.name, a.wallet?.name ?? NO_WALLET);
+    const cardLabel = labeller(cards.map((c) => ({ name: c.name, scope: accountOf(c.account) })));
+    const categoryLabel = labeller(categories.map((c) => ({ name: c.name, scope: c.parent?.name ?? '' })));
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Control_Coin';
     wb.calcProperties.fullCalcOnLoad = true; // the "listas" formulas compute on open
 
-    this.instructions(wb);
-    const ws = (key: keyof typeof SHEETS) => this.sheet(wb, SHEETS[key].name, SHEETS[key].cols);
+    this.instructions(wb, parts);
+    const ws = (key: Part) => this.sheet(wb, SHEETS[key].name, SHEETS[key].cols);
 
-    const w = ws('wallets');
-    wallets.forEach((x) => w.addRow([x.name, x.description ?? '']));
+    const lists = {
+      wallets: wallets.map((w) => w.name),
+      accounts: accounts.map(accountOf),
+      cards: cards.map((c) => cardLabel(c.name, accountOf(c.account))),
+      categories: categories.map((c) => (c.parent ? categoryLabel(c.name, c.parent.name) : c.name)),
+    };
+    const hidden = (col: string, items: string[]) => `'Listas'!$${col}$2:$${col}$${Math.max(2, items.length + 1)}`;
+    const ref = {
+      wallets: has('wallets') ? `'Carteiras'!$A$2:$A$${ROWS}` : hidden('A', lists.wallets),
+      accounts: has('accounts') ? `'Contas'!$F$2:$F$${ROWS}` : hidden('B', lists.accounts),
+      cards: has('cards') ? `'Cartões'!$H$2:$H$${ROWS}` : hidden('C', lists.cards),
+      categories: has('categories') ? `'Categorias'!$E$2:$E$${ROWS}` : hidden('D', lists.categories),
+    };
 
-    const a = ws('accounts');
-    accounts.forEach((x) => a.addRow([x.name, ACCOUNT_TYPE_LABEL[x.type as keyof typeof ACCOUNT_TYPE_LABEL] ?? x.type, x.wallet?.name ?? '', Number(x.initialBalance), x.currency]));
-    this.pickColumn(a, 6, (r) => `IF(A${r}="","",IF(COUNTIF($A$2:$A$${ROWS},A${r})>1,IF(C${r}="","${NO_WALLET}",C${r})&"${SEP}"&A${r},A${r}))`);
-    this.list(a, 'B', ['Conta bancária', 'Dinheiro', 'Dívida']);
-    this.list(a, 'C', `'Carteiras'!$A$2:$A$${ROWS}`);
-    this.money(a, 'D');
-
-    const c = ws('cards');
-    cards.forEach((x) => c.addRow([x.name, accountLabel(x.account.name, x.account.wallet?.name ?? NO_WALLET), yn(x.allowsCredit), yn(x.allowsDebit), x.creditLimit ? Number(x.creditLimit) : null, x.closingDay, x.dueDay]));
-    this.pickColumn(c, 8, (r) => `IF(A${r}="","",IF(COUNTIF($A$2:$A$${ROWS},A${r})>1,B${r}&"${SEP}"&A${r},A${r}))`);
-    this.list(c, 'B', `'Contas'!$F$2:$F$${ROWS}`);
-    this.list(c, 'C', ['Sim', 'Não']);
-    this.list(c, 'D', ['Sim', 'Não']);
-    this.money(c, 'E');
-
-    const g = ws('categories');
-    categories.forEach((x) => g.addRow([x.name, x.parent?.name ?? '', yn(x.isEssential), x.monthlyTarget ? Number(x.monthlyTarget) : null]));
-    this.pickColumn(g, 5, (r) => `IF(A${r}="","",IF(AND(B${r}<>"",COUNTIF($A$2:$A$${ROWS},A${r})>1),B${r}&"${SEP}"&A${r},A${r}))`);
-    this.list(g, 'B', `'Categorias'!$A$2:$A$${ROWS}`);
-    this.list(g, 'C', ['Sim', 'Não']);
-    this.money(g, 'D');
-
-    const l = ws('entries');
-    this.list(l, 'B', ['Despesa', 'Receita', 'Transferência']);
-    this.list(l, 'E', `'Contas'!$F$2:$F$${ROWS}`);
-    this.list(l, 'F', `'Cartões'!$H$2:$H$${ROWS}`);
-    this.list(l, 'G', ['Crédito', 'Débito']);
-    this.list(l, 'I', `'Categorias'!$E$2:$E$${ROWS}`);
-    this.list(l, 'J', `'Contas'!$F$2:$F$${ROWS}`);
-    this.money(l, 'D');
-    l.getColumn('A').numFmt = 'dd/mm/yyyy';
-    for (let r = 2; r <= ROWS; r += 1) {
-      l.getCell(`A${r}`).dataValidation = { type: 'date', operator: 'greaterThan', allowBlank: true, formulae: [new Date('1990-01-01')], showErrorMessage: true, error: 'Digite uma data, ex.: 15/03/2026' };
+    if (has('wallets')) {
+      const w = ws('wallets');
+      wallets.forEach((x) => w.addRow([x.name, x.description ?? '']));
     }
-    wb.views = [{ activeTab: 5, x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, visibility: 'visible' }];
+    if (has('accounts')) {
+      const a = ws('accounts');
+      accounts.forEach((x) => a.addRow([x.name, ACCOUNT_TYPE_LABEL[x.type as keyof typeof ACCOUNT_TYPE_LABEL] ?? x.type, x.wallet?.name ?? '', Number(x.initialBalance), x.currency]));
+      this.pickColumn(a, 6, (r) => `IF(A${r}="","",IF(COUNTIF($A$2:$A$${ROWS},A${r})>1,IF(C${r}="","${NO_WALLET}",C${r})&"${SEP}"&A${r},A${r}))`);
+      this.list(a, 'B', ['Conta bancária', 'Dinheiro', 'Dívida']);
+      this.list(a, 'C', ref.wallets);
+      this.money(a, 'D');
+    }
+    if (has('cards')) {
+      const c = ws('cards');
+      cards.forEach((x) => c.addRow([x.name, accountOf(x.account), yn(x.allowsCredit), yn(x.allowsDebit), x.creditLimit ? Number(x.creditLimit) : null, x.closingDay, x.dueDay]));
+      this.pickColumn(c, 8, (r) => `IF(A${r}="","",IF(COUNTIF($A$2:$A$${ROWS},A${r})>1,B${r}&"${SEP}"&A${r},A${r}))`);
+      this.list(c, 'B', ref.accounts);
+      this.list(c, 'C', ['Sim', 'Não']);
+      this.list(c, 'D', ['Sim', 'Não']);
+      this.money(c, 'E');
+    }
+    if (has('categories')) {
+      const g = ws('categories');
+      categories.forEach((x) => g.addRow([x.name, x.parent?.name ?? '', yn(x.isEssential), x.monthlyTarget ? Number(x.monthlyTarget) : null]));
+      this.pickColumn(g, 5, (r) => `IF(A${r}="","",IF(AND(B${r}<>"",COUNTIF($A$2:$A$${ROWS},A${r})>1),B${r}&"${SEP}"&A${r},A${r}))`);
+      this.list(g, 'B', `'Categorias'!$A$2:$A$${ROWS}`);
+      this.list(g, 'C', ['Sim', 'Não']);
+      this.money(g, 'D');
+    }
+    if (has('entries')) {
+      const l = ws('entries');
+      this.list(l, 'B', ['Despesa', 'Receita', 'Transferência']);
+      this.list(l, 'E', ref.accounts);
+      this.list(l, 'F', ref.cards);
+      this.list(l, 'G', ['Crédito', 'Débito']);
+      this.list(l, 'I', ref.categories);
+      this.list(l, 'J', ref.accounts);
+      this.money(l, 'D');
+      this.dates(l);
+    }
+    if (has('planned')) {
+      const l = ws('planned');
+      this.list(l, 'B', ['Despesa', 'Receita', 'Transferência']);
+      this.list(l, 'E', ref.accounts);
+      this.list(l, 'F', ref.cards);
+      this.list(l, 'G', ['Crédito', 'Débito']);
+      this.list(l, 'H', ref.categories);
+      this.list(l, 'I', ref.accounts);
+      this.money(l, 'D');
+      this.dates(l);
+    }
 
+    const hiddenSheet = wb.addWorksheet('Listas', { state: 'hidden' });
+    hiddenSheet.addRow(['Carteiras', 'Contas', 'Cartões', 'Categorias']);
+    const longest = Math.max(lists.wallets.length, lists.accounts.length, lists.cards.length, lists.categories.length);
+    for (let i = 0; i < longest; i += 1) {
+      hiddenSheet.addRow([lists.wallets[i] ?? null, lists.accounts[i] ?? null, lists.cards[i] ?? null, lists.categories[i] ?? null]);
+    }
+
+    wb.views = [{ activeTab: 1, x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, visibility: 'visible' }];
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
 
-  private instructions(wb: ExcelJS.Workbook): void {
+  private dates(s: ExcelJS.Worksheet): void {
+    s.getColumn('A').numFmt = 'dd/mm/yyyy';
+    for (let r = 2; r <= ROWS; r += 1) {
+      s.getCell(`A${r}`).dataValidation = { type: 'date', operator: 'greaterThan', allowBlank: true, formulae: [new Date('1990-01-01')], showErrorMessage: true, error: 'Digite uma data, ex.: 15/03/2026' };
+    }
+  }
+
+  private instructions(wb: ExcelJS.Workbook, parts: readonly Part[]): void {
     const s = wb.addWorksheet('Como preencher');
     s.getColumn(1).width = 110;
+    const names = PARTS.filter((p) => parts.includes(p)).map((p) => SHEETS[p].name);
+    const tips: Record<Part, string> = {
+      wallets: 'Carteiras: um grupo de contas (ex.: Pessoal, Casa).',
+      accounts: 'Contas: onde o dinheiro fica. O que você já tem vem preenchido e não é alterado.',
+      cards: 'Cartões: precisam de uma conta. Crédito exige limite e dias de fechamento e vencimento.',
+      categories: 'Categorias: só um nível de subcategoria.',
+      entries: 'Lançamentos: o que já aconteceu. Uma linha por compra / recebimento; parcelado = valor TOTAL + parcelas. Despesa: Conta OU Cartão. Receita: Conta. Transferência: Conta e Conta destino.',
+      planned: 'Previstos: o que pode acontecer. Não mexe em saldo; perto da data o sistema pergunta o que aconteceu. Conta e cartão são opcionais.',
+    };
     const lines: [string, boolean?][] = [
       ['Control Coin — planilha para importar', true],
       [''],
-      ['1. Preencha só o que você sabe digitar. Saldos, faturas, parcelas, custo de vida e médias são calculados pelo sistema.'],
-      ['2. As colunas com * são obrigatórias. Passe o mouse no título da coluna para ver a dica.'],
-      ['3. Ordem sugerida: Carteiras → Contas → Cartões → Categorias → Lançamentos. As listas de cada aba vêm das abas anteriores.'],
-      ['4. O que você já tem no Control Coin já vem preenchido. Essas linhas não são alteradas — só as novas são criadas.'],
-      ['5. Lançamentos: uma linha por compra / recebimento. Compra parcelada = valor TOTAL + número de parcelas.'],
-      ['6. Despesa: preencha Conta OU Cartão. Receita: Conta. Transferência: Conta (origem) e Conta destino.'],
-      ['7. Se alguma linha tiver erro, nada é importado e a tela mostra aba e linha. Corrija e envie de novo.'],
-      ['8. Enviar a mesma planilha de novo não duplica: lançamentos já importados são ignorados.'],
+      [`Abas desta planilha: ${names.join(', ')}.`],
+      ['Preencha só o que você sabe digitar. Saldos, faturas, parcelas e médias são calculados pelo sistema.'],
+      ['Colunas com * são obrigatórias. Passe o mouse no título da coluna para ver a dica; as colunas com lista têm uma setinha.'],
       [''],
-      ['Pagamento de fatura não entra aqui: use a tela Faturas depois de importar.'],
+      ...PARTS.filter((p) => parts.includes(p)).map((p) => [`• ${tips[p]}`] as [string]),
+      [''],
+      ['Se alguma linha tiver erro, nada é importado e a tela mostra aba e linha. Enviar a mesma planilha de novo não duplica.'],
+      ['Precisa de outra parte? Baixe de novo marcando o que quiser na tela Dados.'],
     ];
     lines.forEach(([text, bold]) => {
       const row = s.addRow([text]);
@@ -244,7 +320,7 @@ export class WorkbookService {
     } catch {
       throw userError(ERROR_CODES.VALIDATION_FAILED, 'não foi possível ler o arquivo — salve como .xlsx');
     }
-    if (!wb.getWorksheet(SHEETS.entries.name) && !wb.getWorksheet(SHEETS.accounts.name)) {
+    if (!PARTS.some((p) => wb.getWorksheet(SHEETS[p].name))) {
       throw userError(ERROR_CODES.VALIDATION_FAILED, 'esta não é a planilha modelo — baixe o modelo na tela Dados');
     }
 
@@ -338,12 +414,12 @@ export class WorkbookService {
     }
 
     // Lançamentos, validated against the model.
-    type Planned = {
+    type ToCreate = {
       at: string;
       ref: string;
       build: () => Parameters<TransactionsService['create']>[1];
     };
-    const planned: Planned[] = [];
+    const toCreate: ToCreate[] = [];
     const seen = new Map<string, number>();
     for (const { at, get, cell } of rows(wb, 'entries', errors)) {
       let date: string;
@@ -410,7 +486,7 @@ export class WorkbookService {
       const s = source;
       const currency = 'account' in s ? s.account.currency : s.card.account.currency;
 
-      planned.push({
+      toCreate.push({
         at,
         ref,
         build: () => {
@@ -438,12 +514,95 @@ export class WorkbookService {
       });
     }
 
+    // Previstos (BR40): source and destination are only expectations, so optional.
+    type Plan = {
+      key: string;
+      kind: 'EXPENSE' | 'INCOME' | 'TRANSFER';
+      description: string;
+      amount: Money;
+      expectedOn: string;
+      category: Category | null;
+      account: Account | null;
+      card: Card | null;
+      fn: 'CREDIT' | 'DEBIT' | null;
+      destination: Account | null;
+      notify: number;
+    };
+    const plans: Plan[] = [];
+    for (const { at, get, cell } of rows(wb, 'planned', errors)) {
+      let expectedOn: string;
+      let amount: Money;
+      try {
+        expectedOn = readDate(cell('date'));
+      } catch {
+        errors.push(`${at}: Data prevista inválida`);
+        continue;
+      }
+      try {
+        amount = readAmount(cell('amount')).amount.replace('-', '') as Money;
+        if (Number(amount) <= 0) throw new Error();
+      } catch {
+        errors.push(`${at}: Valor inválido`);
+        continue;
+      }
+      const kind = KINDS[norm(get('kind'))];
+      if (!kind) { errors.push(`${at}: Tipo deve ser Despesa, Receita ou Transferência`); continue; }
+      const description = get('description');
+      if (!description) { errors.push(`${at}: Descrição é obrigatória`); continue; }
+      const notify = get('notify') ? Number(get('notify')) : 3;
+      if (!Number.isInteger(notify) || notify < 0 || notify > 60) { errors.push(`${at}: Avisar dias antes deve ser de 0 a 60`); continue; }
+
+      let category: Category | null = null;
+      if (get('category') && kind !== 'TRANSFER') {
+        const c = resolveCategory(categories, get('category'));
+        if (typeof c === 'string') { errors.push(`${at}: ${c}`); continue; }
+        category = c;
+      }
+      let account: Account | null = null;
+      let card: Card | null = null;
+      let fn: 'CREDIT' | 'DEBIT' | null = null;
+      if (get('account') && get('card')) { errors.push(`${at}: preencha Conta OU Cartão, não os dois`); continue; }
+      if (get('account')) {
+        const a = resolveAccount(accounts, get('account'));
+        if (typeof a === 'string') { errors.push(`${at}: ${a}`); continue; }
+        account = a;
+      } else if (get('card')) {
+        if (kind !== 'EXPENSE') { errors.push(`${at}: cartão só para despesa`); continue; }
+        const c = resolveCard(cards, get('card'));
+        if (typeof c === 'string') { errors.push(`${at}: ${c}`); continue; }
+        const chosen = norm(get('cardFunction'));
+        fn = chosen === 'debito' ? 'DEBIT' : chosen === 'credito' ? 'CREDIT' : c.allowsCredit ? 'CREDIT' : 'DEBIT';
+        if (fn === 'CREDIT' ? !c.allowsCredit : !c.allowsDebit) { errors.push(`${at}: o cartão "${c.name}" não tem a função ${fn === 'CREDIT' ? 'crédito' : 'débito'}`); continue; }
+        card = c;
+      }
+      let destination: Account | null = null;
+      if (kind === 'TRANSFER' && get('destination')) {
+        const d = resolveAccount(accounts, get('destination'));
+        if (typeof d === 'string') { errors.push(`${at}: Conta destino — ${d}`); continue; }
+        destination = d;
+      }
+      plans.push({ key: [kind, norm(description), amount, expectedOn].join('|'), kind, description, amount, expectedOn, category, account, card, fn, destination, notify });
+    }
+
     if (errors.length > 0) {
       const message = `${errors.length} erro(s) — nada foi importado`;
       throw new DomainError(ERROR_CODES.VALIDATION_FAILED, message, { message, errors: errors.slice(0, 100) });
     }
 
     // ── Write ──
+    // A plan already present (same kind, description, amount, date) is skipped;
+    // the n-th identical row in the file is new only if fewer than n exist.
+    const existingPlans = new Map<string, number>();
+    if (plans.length > 0) {
+      for (const p of await this.prisma.plannedTransaction.findMany({ where: { userId }, select: { kind: true, description: true, amount: true, expectedOn: true } })) {
+        const k = [p.kind, norm(p.description), p.amount.toFixed(2), p.expectedOn.toISOString().slice(0, 10)].join('|');
+        existingPlans.set(k, (existingPlans.get(k) ?? 0) + 1);
+      }
+    }
+    const mainCurrency = plans.length > 0 ? (await this.prisma.user.findUniqueOrThrow({ where: { id: userId } })).mainCurrency : 'BRL';
+    let plansCreated = 0;
+    let plansSkipped = 0;
+
     await this.prisma.$transaction(async (tx) => {
       for (const w of newWallets) w.id = (await tx.wallet.create({ data: { userId, name: w.name, description: w.description } })).id;
       for (const a of newAccounts) {
@@ -467,14 +626,40 @@ export class WorkbookService {
           })
         ).id;
       }
+      const seenPlans = new Map<string, number>();
+      for (const p of plans) {
+        const n = (seenPlans.get(p.key) ?? 0) + 1;
+        seenPlans.set(p.key, n);
+        if ((existingPlans.get(p.key) ?? 0) >= n) {
+          plansSkipped += 1;
+          continue;
+        }
+        await tx.plannedTransaction.create({
+          data: {
+            userId,
+            kind: p.kind,
+            description: p.description,
+            amount: p.amount,
+            currency: p.card?.account.currency ?? p.account?.currency ?? mainCurrency,
+            expectedOn: new Date(p.expectedOn),
+            categoryId: p.category?.id ?? null,
+            accountId: p.account?.id ?? null,
+            cardId: p.card?.id ?? null,
+            cardFunction: p.fn,
+            destinationAccountId: p.destination?.id ?? null,
+            notifyDaysBefore: p.notify,
+          },
+        });
+        plansCreated += 1;
+      }
     });
 
     const already = new Set(
-      (await this.prisma.transaction.findMany({ where: { userId, externalRef: { in: planned.map((p) => p.ref) } }, select: { externalRef: true } })).map((t) => t.externalRef),
+      (await this.prisma.transaction.findMany({ where: { userId, externalRef: { in: toCreate.map((p) => p.ref) } }, select: { externalRef: true } })).map((t) => t.externalRef),
     );
     let imported = 0;
     const failed: string[] = [];
-    for (const p of planned) {
+    for (const p of toCreate) {
       if (already.has(p.ref)) continue;
       try {
         const t = await this.transactions.create(userId, p.build());
@@ -486,8 +671,8 @@ export class WorkbookService {
     }
 
     return {
-      created: { wallets: newWallets.length, accounts: newAccounts.length, cards: newCards.length, categories: newCategories.length, transactions: imported },
-      skipped: already.size,
+      created: { wallets: newWallets.length, accounts: newAccounts.length, cards: newCards.length, categories: newCategories.length, transactions: imported, planned: plansCreated },
+      skipped: already.size + plansSkipped,
       errors: failed,
     };
   }

@@ -34,6 +34,7 @@ model User {
   recoveryCodes RecoveryCode[]
   sessions      Session[]
   importBatches ImportBatch[]
+  planned       PlannedTransaction[]
 
   @@map("app_user")
 }
@@ -70,6 +71,8 @@ model Account {
   cards   Card[]
   entries Entry[]
   goals   Goal[]
+  plannedFrom PlannedTransaction[] @relation("PlannedSource")
+  plannedTo   PlannedTransaction[] @relation("PlannedDestination")
 
   // BR37 — name is unique per WALLET, enforced by two partial unique indexes
   // that Prisma cannot express (see prisma/migrations, prisma/sql).
@@ -94,6 +97,7 @@ model Card {
   account  Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
   invoices Invoice[]
   entries  Entry[]
+  planned  PlannedTransaction[]
 
   @@index([accountId])
   @@map("card")
@@ -117,6 +121,7 @@ model Category {
   children     Category[]    @relation("CategoryTree")
   transactions Transaction[]
   budgets      Budget[]
+  planned      PlannedTransaction[]
 
   @@map("category")
 }
@@ -175,6 +180,7 @@ model Transaction {
   series      Series?      @relation(fields: [seriesId], references: [id], onDelete: SetNull)
   importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
   entries     Entry[]
+  planned     PlannedTransaction[]
 
   @@index([userId, occurredOn])
   @@map("transaction")
@@ -283,6 +289,39 @@ model GoalContribution {
   goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   @@map("goal_contribution")
+}
+
+// BR40: a forecast, not a movement — nothing derived reads this table until it
+// is confirmed into a real transaction. The account/card here are only the
+// expected ones; the confirmation says what actually happened.
+model PlannedTransaction {
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  kind                 String                                   // INCOME | EXPENSE | TRANSFER
+  description          String
+  categoryId           String?   @map("category_id") @db.Uuid
+  amount               Decimal   @db.Decimal(14, 2)
+  currency             String    @db.Char(3)
+  expectedOn           DateTime  @map("expected_on") @db.Date
+  accountId            String?   @map("account_id") @db.Uuid
+  cardId               String?   @map("card_id") @db.Uuid
+  cardFunction         String?   @map("card_function")
+  destinationAccountId String?   @map("destination_account_id") @db.Uuid
+  notifyDaysBefore     Int       @default(3) @map("notify_days_before") @db.SmallInt
+  status               String    @default("PENDING")            // PENDING | CONFIRMED | CANCELLED
+  transactionId        String?   @map("transaction_id") @db.Uuid
+  resolvedAt           DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category           Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account            Account?     @relation("PlannedSource", fields: [accountId], references: [id], onDelete: SetNull)
+  card               Card?        @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  destinationAccount Account?     @relation("PlannedDestination", fields: [destinationAccountId], references: [id], onDelete: SetNull)
+  transaction        Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, expectedOn])
+  @@map("planned_transaction")
 }
 
 // BR28: no channel column — the notification centre is the only destination.

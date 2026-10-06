@@ -4,14 +4,25 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 type Result = {
-  created: { wallets: number; accounts: number; cards: number; categories: number; transactions: number };
+  created: { wallets: number; accounts: number; cards: number; categories: number; transactions: number; planned: number };
   skipped: number;
   errors: string[];
 };
 
-/** The fill-in workbook: download it pre-filled, send it back filled. */
+const PARTS = [
+  { key: 'entries', label: 'Lançamentos', hint: 'o que já aconteceu' },
+  { key: 'planned', label: 'Previstos', hint: 'o que pode acontecer' },
+  { key: 'categories', label: 'Categorias', hint: 'criar categorias novas' },
+  { key: 'accounts', label: 'Contas', hint: 'criar contas novas' },
+  { key: 'cards', label: 'Cartões', hint: 'criar cartões novos' },
+  { key: 'wallets', label: 'Carteiras', hint: 'criar carteiras novas' },
+] as const;
+
+/** The fill-in workbook: pick the parts, download them pre-filled, send back. */
 export function ImportWorkbook() {
   const router = useRouter();
+  const [parts, setParts] = useState<string[]>(['entries']);
+  const toggle = (key: string) => setParts((p) => (p.includes(key) ? p.filter((x) => x !== key) : [...p, key]));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<{ message: string; rows: string[] } | null>(null);
@@ -39,24 +50,45 @@ export function ImportWorkbook() {
   const c = result?.created;
   return (
     <div className="flex flex-col gap-3">
-      <ol className="ml-4 list-decimal text-[13px] text-[var(--color-ink-2)] [&>li]:mt-1">
-        <li>Baixe a planilha. Ela já vem com suas contas, cartões e categorias.</li>
-        <li>Preencha a aba <strong>Lançamentos</strong> (e as outras, se quiser criar algo novo). As colunas têm listas para escolher.</li>
-        <li>Envie de volta. Saldos, faturas, parcelas e médias são calculados pelo sistema.</li>
-      </ol>
+      <div>
+        <div className="mb-1.5 text-[12px] font-semibold text-[var(--color-ink-2)]">1. O que você quer importar?</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {PARTS.map((p) => (
+            <label
+              key={p.key}
+              className={`flex cursor-pointer items-start gap-2 rounded-[10px] border px-3 py-2 text-[13px] transition ${
+                parts.includes(p.key) ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)]' : 'border-[var(--color-line)] hover:bg-[var(--color-well)]'
+              }`}
+            >
+              <input type="checkbox" checked={parts.includes(p.key)} onChange={() => toggle(p.key)} className="mt-0.5 accent-[var(--color-accent)]" />
+              <span>
+                <strong>{p.label}</strong>
+                <span className="block text-[11px] text-[var(--color-muted)]">{p.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-[var(--color-muted)]">
+          A planilha vem só com essas abas. Suas contas, cartões e categorias já aparecem nas listas para escolher.
+        </p>
+      </div>
 
       <a
-        href="/api/data/template"
-        className="flex items-center justify-between rounded-[10px] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-3.5 py-3 text-[13px] transition hover:brightness-105"
+        href={parts.length > 0 ? `/api/data/template?parts=${parts.join(',')}` : undefined}
+        aria-disabled={parts.length === 0}
+        className={`flex items-center justify-between rounded-[10px] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-3.5 py-3 text-[13px] transition hover:brightness-105 ${
+          parts.length === 0 ? 'pointer-events-none opacity-40' : ''
+        }`}
       >
         <span>
-          <strong>Baixar planilha para preencher</strong>
+          <strong>2. Baixar planilha</strong>
+          <span className="ml-2 text-[var(--color-ink-2)]">e preencher</span>
         </span>
         <span className="font-semibold text-[var(--color-accent)]">↓ XLSX</span>
       </a>
 
       <div className="rounded-[10px] border border-dashed border-[var(--color-rule)] p-3.5">
-        <div className="mb-1.5 text-[12px] font-semibold text-[var(--color-ink-2)]">Enviar planilha preenchida</div>
+        <div className="mb-1.5 text-[12px] font-semibold text-[var(--color-ink-2)]">3. Enviar planilha preenchida</div>
         <input
           type="file"
           accept=".xlsx"
@@ -83,7 +115,7 @@ export function ImportWorkbook() {
 
       {c ? (
         <div className="rounded-[10px] border border-[var(--color-good)]/30 bg-[var(--color-good)]/8 px-3.5 py-2.5 text-[13px]">
-          Importado: <strong>{c.transactions}</strong> lançamentos
+          Importado: <strong>{c.transactions}</strong> lançamentos · <strong>{c.planned}</strong> previstos
           {c.accounts + c.cards + c.categories + c.wallets > 0 ? (
             <>
               {' '}· novos: {c.wallets} carteiras, {c.accounts} contas, {c.cards} cartões, {c.categories} categorias

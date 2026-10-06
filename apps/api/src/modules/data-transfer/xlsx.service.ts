@@ -9,6 +9,7 @@ import { ERROR_CODES } from '@cc/domain/rules';
 import { DomainError } from '../../common/errors/domain-error.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { TransactionsService } from '../transactions/transactions.service.js';
+import { categoryMatcher } from './category-matcher.js';
 
 /**
  * Excel import and export (UC09, BR26).
@@ -199,6 +200,7 @@ export class XlsxService {
     batchId: string;
     sheet: string;
     locale: string;
+    categoriesCreated: string[];
   }> {
     const account = await this.prisma.account.findFirst({ where: { id: accountId, userId } });
     if (!account) throw new DomainError(ERROR_CODES.NOT_FOUND, 'account not found');
@@ -220,6 +222,7 @@ export class XlsxService {
       throw new DomainError(ERROR_CODES.VALIDATION_FAILED, 'não encontrei colunas de data, valor e descrição');
     }
 
+    const categories = await categoryMatcher(this.prisma, userId);
     const batch = await this.prisma.importBatch.create({
       data: { userId, sourceFormat: 'XLSX', fileName: 'upload.xlsx', sheetName: sheet.name },
     });
@@ -266,7 +269,7 @@ export class XlsxService {
       await this.transactions.create(userId, {
         kind: isIncome ? 'INCOME' : 'EXPENSE',
         occurrenceType: 'OCCASIONAL',
-        categoryId: null,
+        categoryId: columns.category ? await categories.resolve(cellText(row.getCell(columns.category))) : null,
         description,
         occurredOn: date,
         totalAmount: amount,
@@ -286,7 +289,7 @@ export class XlsxService {
       data: { rowCount: imported, errorCount: errors, numberLocale: localeSeen },
     });
 
-    return { imported, duplicates, errors, batchId: batch.id, sheet: sheet.name, locale: localeSeen };
+    return { imported, duplicates, errors, batchId: batch.id, sheet: sheet.name, locale: localeSeen, categoriesCreated: categories.created };
   }
 }
 
@@ -296,24 +299,27 @@ const HEADER_HINTS = {
   date: /^(data|date|dt)/i,
   amount: /^(valor|amount|montante|value)/i,
   description: /^(descri|desc|hist|memo|lançamento|lancamento)/i,
+  category: /^(categoria|category)/i,
 };
 
 /** Detect the header row rather than assuming it is row 1 (BR26). */
 function detectHeader(
   sheet: ExcelJS.Worksheet,
-): { headerRow: number; columns: { date: number; amount: number; description: number } | null } {
+): { headerRow: number; columns: { date: number; amount: number; description: number; category: number } | null } {
   for (let r = 1; r <= Math.min(sheet.rowCount, 12); r += 1) {
     const row = sheet.getRow(r);
     let date = 0;
     let amount = 0;
     let description = 0;
+    let category = 0;
     row.eachCell((cell, col) => {
       const text = cellText(cell);
       if (!date && HEADER_HINTS.date.test(text)) date = col;
       if (!amount && HEADER_HINTS.amount.test(text)) amount = col;
       if (!description && HEADER_HINTS.description.test(text)) description = col;
+      if (!category && HEADER_HINTS.category.test(text)) category = col;
     });
-    if (date && amount && description) return { headerRow: r, columns: { date, amount, description } };
+    if (date && amount && description) return { headerRow: r, columns: { date, amount, description, category } };
   }
   return { headerRow: 1, columns: null };
 }
